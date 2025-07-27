@@ -1,5 +1,7 @@
 import { createPublicClient, createWalletClient, custom, http } from 'viem'
 import { defineChain } from 'viem'
+// Import the actual contract ABI
+import MonkaBreakABI from '../../contracts/MonkaBreak.abi.json'
 
 // Monad Testnet configuration
 export const monadTestnet = defineChain({
@@ -37,99 +39,29 @@ export const createWalletClientForBrowser = () => {
   })
 }
 
-// Smart contract ABI - This would be your actual deployed contract ABI
-export const GAME_CONTRACT_ABI = [
-  // Example functions - replace with your actual contract ABI
-  {
-    name: 'createGame',
-    type: 'function',
-    stateMutability: 'payable',
-    inputs: [
-      { name: 'entryFee', type: 'uint256' },
-      { name: 'maxPlayers', type: 'uint8' },
-    ],
-    outputs: [{ name: 'gameId', type: 'uint256' }],
-  },
-  {
-    name: 'joinGame',
-    type: 'function',
-    stateMutability: 'payable',
-    inputs: [
-      { name: 'gameId', type: 'uint256' },
-      { name: 'role', type: 'uint8' }, // 0 = thief, 1 = police
-    ],
-    outputs: [],
-  },
-  {
-    name: 'commitMove',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'gameId', type: 'uint256' },
-      { name: 'round', type: 'uint8' },
-      { name: 'moveHash', type: 'bytes32' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'revealMove',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'gameId', type: 'uint256' },
-      { name: 'round', type: 'uint8' },
-      { name: 'move', type: 'string' },
-      { name: 'nonce', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'finalizeGame',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'gameId', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'getGameState',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'gameId', type: 'uint256' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'creator', type: 'address' },
-          { name: 'entryFee', type: 'uint256' },
-          { name: 'prizePool', type: 'uint256' },
-          { name: 'isActive', type: 'bool' },
-          { name: 'currentRound', type: 'uint8' },
-          { name: 'winningTeam', type: 'uint8' },
-        ],
-      },
-    ],
-  },
-] as const
+// Smart contract ABI - Using the actual deployed contract ABI
+export const GAME_CONTRACT_ABI = MonkaBreakABI
 
+// Deployed contract address from environment variables
 export const GAME_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_GAME_CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`
 
 // Contract interaction functions
 export const smartContract = {
-  // Create a new game on the blockchain
-  async createGame(entryFee: bigint, maxPlayers: number = 8) {
+  // Create a new game on the blockchain and lock entry fee
+  async createGameWithFee(entryFee: bigint) {
     const walletClient = createWalletClientForBrowser()
     if (!walletClient) throw new Error('Wallet client not available')
 
     const [account] = await walletClient.getAddresses()
     if (!account) throw new Error('No account connected')
 
+    // Call the createGame function on the smart contract with entry fee as payment
     const hash = await walletClient.writeContract({
       address: GAME_CONTRACT_ADDRESS,
       abi: GAME_CONTRACT_ABI,
       functionName: 'createGame',
-      args: [entryFee, maxPlayers],
-      value: entryFee,
+      args: [entryFee], // Pass entry fee as parameter
+      value: entryFee, // Send MON as payment
       account,
     })
 
@@ -223,6 +155,18 @@ export const smartContract = {
     })
 
     return result
+  },
+
+  // Get minimum entry fee from contract
+  async getMinEntryFee(): Promise<bigint> {
+    const result = await publicClient.readContract({
+      address: GAME_CONTRACT_ADDRESS,
+      abi: GAME_CONTRACT_ABI,
+      functionName: 'MIN_ENTRY_FEE',
+      args: [],
+    })
+
+    return result as bigint
   },
 }
 

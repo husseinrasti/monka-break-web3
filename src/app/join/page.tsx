@@ -32,6 +32,7 @@ export default function JoinGamePage() {
     api.rooms.getRoomPlayers,
     roomData ? { roomId: roomData._id } : 'skip'
   )
+  const gameConfig = useQuery(api.gameConfig.getOrCreateGameConfig, {})
 
   // Pre-fill room code from URL if provided
   useEffect(() => {
@@ -59,7 +60,7 @@ export default function JoinGamePage() {
 
     setIsLoading(true)
     try {
-              const roomId = await joinRoom({
+      const roomId = await joinRoom({
         roomCode: roomCode.toUpperCase(),
         address,
         nickname: nickname || undefined,
@@ -84,7 +85,20 @@ export default function JoinGamePage() {
     }
   }
 
+  const getMaxPlayersPerTeam = () => {
+    if (!gameConfig) return 5 // fallback
+    return Math.floor(gameConfig.maxTotalPlayers / 2)
+  }
+
+  const isTeamFull = (role: 'thief' | 'police') => {
+    if (!gameConfig) return false
+    const stats = getTeamStats()
+    const maxPerTeam = getMaxPlayersPerTeam()
+    return role === 'thief' ? stats.thieves >= maxPerTeam : stats.police >= maxPerTeam
+  }
+
   const teamStats = getTeamStats()
+  const maxPerTeam = getMaxPlayersPerTeam()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background">
@@ -156,12 +170,18 @@ export default function JoinGamePage() {
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span>🥷 Thieves:</span>
-                        <span>{teamStats.thieves}/4</span>
+                        <span>{teamStats.thieves}/{maxPerTeam}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span>👮 Police:</span>
-                        <span>{teamStats.police}/4</span>
+                        <span>{teamStats.police}/{maxPerTeam}</span>
                       </div>
+                      {gameConfig && (
+                        <div className="flex justify-between text-sm">
+                          <span>Total:</span>
+                          <span>{teamStats.thieves + teamStats.police}/{gameConfig.maxTotalPlayers}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -189,19 +209,19 @@ export default function JoinGamePage() {
                     className={`cursor-pointer transition-colors ${
                       selectedRole === 'thief' 
                         ? 'border-primary bg-primary/10' 
-                        : teamStats.thieves >= 4
+                        : isTeamFull('thief')
                         ? 'opacity-50 cursor-not-allowed'
                         : 'hover:border-primary/50'
                     }`}
-                    onClick={() => teamStats.thieves < 4 && setSelectedRole('thief')}
+                    onClick={() => !isTeamFull('thief') && setSelectedRole('thief')}
                   >
                     <CardContent className="p-4 text-center">
                       <div className="text-2xl mb-2">🥷</div>
                       <div className="font-medium">Thief</div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        {teamStats.thieves}/4 players
+                        {teamStats.thieves}/{maxPerTeam} players
                       </div>
-                      {teamStats.thieves >= 4 && (
+                      {isTeamFull('thief') && (
                         <div className="text-xs text-accent mt-1">Full</div>
                       )}
                     </CardContent>
@@ -211,19 +231,19 @@ export default function JoinGamePage() {
                     className={`cursor-pointer transition-colors ${
                       selectedRole === 'police' 
                         ? 'border-accent bg-accent/10' 
-                        : teamStats.police >= 4
+                        : isTeamFull('police')
                         ? 'opacity-50 cursor-not-allowed'
                         : 'hover:border-accent/50'
                     }`}
-                    onClick={() => teamStats.police < 4 && setSelectedRole('police')}
+                    onClick={() => !isTeamFull('police') && setSelectedRole('police')}
                   >
                     <CardContent className="p-4 text-center">
                       <div className="text-2xl mb-2">👮</div>
                       <div className="font-medium">Police</div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        {teamStats.police}/4 players
+                        {teamStats.police}/{maxPerTeam} players
                       </div>
-                      {teamStats.police >= 4 && (
+                      {isTeamFull('police') && (
                         <div className="text-xs text-accent mt-1">Full</div>
                       )}
                     </CardContent>
@@ -240,28 +260,31 @@ export default function JoinGamePage() {
               disabled={
                 isLoading || 
                 !isConnected || 
-                roomCode.length !== 6 || 
                 !roomData || 
-                roomData.started ||
-                !selectedRole
+                roomData.started || 
+                !selectedRole ||
+                isTeamFull(selectedRole) ||
+                (gameConfig && roomPlayers && roomPlayers.length >= gameConfig.maxTotalPlayers)
               }
             >
               {isLoading ? (
                 'Joining Room...'
               ) : !isConnected ? (
                 'Connect Wallet to Join'
-              ) : roomCode.length !== 6 ? (
-                'Enter Room Code'
               ) : !roomData ? (
-                'Room Not Found'
+                'Enter Room Code'
               ) : roomData.started ? (
                 'Game Already Started'
               ) : !selectedRole ? (
                 'Select a Role'
+              ) : selectedRole && isTeamFull(selectedRole) ? (
+                `${selectedRole === 'thief' ? 'Thieves' : 'Police'} Team Full`
+              ) : gameConfig && roomPlayers && roomPlayers.length >= gameConfig.maxTotalPlayers ? (
+                'Room Full'
               ) : (
                 <>
                   <Users className="mr-2 h-5 w-5" />
-                  Join Game Room
+                  Join as {selectedRole === 'thief' ? '🥷 Thief' : '👮 Police'}
                 </>
               )}
             </Button>

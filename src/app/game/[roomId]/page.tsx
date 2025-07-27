@@ -9,8 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { WalletConnect } from '@/components/wallet-connect'
+import { EntryFeeDialog } from '@/components/entry-fee-dialog'
 import { formatAddress, formatMON, getRoleColor, getRoleIcon } from '@/lib/utils'
-import { ArrowLeft, Users, Clock, Play, Target } from 'lucide-react'
+import { ArrowLeft, Users, Clock, Play, Target, Coins } from 'lucide-react'
 import { GameVoting } from '@/components/game-voting'
 import { GameCommit } from '@/components/game-commit'
 import { GameResults } from '@/components/game-results'
@@ -24,8 +25,6 @@ export default function GameRoomPage() {
   const roomId = params.roomId as string
   const roomCode = searchParams.get('code')
   
-  const startGame = useMutation(api.rooms.startGame)
-  
   // Queries
   const roomData = useQuery(api.rooms.getRoomByCode, 
     roomCode ? { roomCode } : 'skip'
@@ -33,9 +32,10 @@ export default function GameRoomPage() {
   const roomPlayers = useQuery(api.rooms.getRoomPlayers,
     roomData ? { roomId: roomData._id } : 'skip'
   )
+  const gameConfig = useQuery(api.gameConfig.getOrCreateGameConfig, {})
 
   const [timeRemaining, setTimeRemaining] = useState(0)
-  const [isStarting, setIsStarting] = useState(false)
+  const [isEntryFeeDialogOpen, setIsEntryFeeDialogOpen] = useState(false)
 
   // Calculate time remaining for current phase
   useEffect(() => {
@@ -53,21 +53,18 @@ export default function GameRoomPage() {
     return () => clearInterval(interval)
   }, [roomData?.phaseEndTime])
 
-  const handleStartGame = async () => {
+  const handleStartGameClick = () => {
     if (!isConnected || !address || !roomData) return
+    setIsEntryFeeDialogOpen(true)
+  }
 
-    setIsStarting(true)
-    try {
-      await startGame({
-        roomId: roomData._id,
-        creatorAddress: address,
-      })
-    } catch (error) {
-      console.error('Failed to start game:', error)
-      alert(`Failed to start game: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      setIsStarting(false)
-    }
+  const handleEntryFeeDialogClose = () => {
+    setIsEntryFeeDialogOpen(false)
+  }
+
+  const handleGameStarted = () => {
+    // The dialog will close automatically, and the game should refresh
+    // No additional action needed as the queries will update automatically
   }
 
   const getPhaseDisplay = () => {
@@ -98,12 +95,32 @@ export default function GameRoomPage() {
   }
 
   const canStartGame = () => {
-    if (!roomData || !roomPlayers || !address) return false
+    if (!roomData || !roomPlayers || !address || !gameConfig) return false
     if (roomData.creator !== address) return false
     if (roomData.started) return false
     
-    const teamStats = getTeamStats()
-    return teamStats.thieves >= 2 && teamStats.police >= 2
+    const stats = getTeamStats()
+    return stats.thieves >= gameConfig.minThieves && 
+           stats.police >= gameConfig.minPolice &&
+           roomPlayers.length >= gameConfig.minPlayersToStart
+  }
+
+  const getStartButtonText = () => {
+    if (!isConnected) return 'Connect Wallet to Start'
+    if (!gameConfig) return 'Loading...'
+    
+    const stats = getTeamStats()
+    if (stats.thieves < gameConfig.minThieves) {
+      return `Need ${gameConfig.minThieves}+ thieves`
+    }
+    if (stats.police < gameConfig.minPolice) {
+      return `Need ${gameConfig.minPolice}+ police`
+    }
+    if (!roomPlayers || roomPlayers.length < gameConfig.minPlayersToStart) {
+      return `Need ${gameConfig.minPlayersToStart}+ players total`
+    }
+    
+    return null // Show normal start button
   }
 
   const currentPlayer = roomPlayers?.find(p => p.address === address)
@@ -192,18 +209,14 @@ export default function GameRoomPage() {
 
               {!roomData.started && roomData.creator === address && (
                 <Button 
-                  onClick={handleStartGame}
-                  disabled={!canStartGame() || isStarting}
+                  onClick={handleStartGameClick}
+                  disabled={!canStartGame() || !isConnected}
                   className="w-full"
                   size="lg"
                 >
-                  {isStarting ? (
-                    'Starting Game...'
-                  ) : !canStartGame() ? (
-                    'Need 2+ players per team'
-                  ) : (
+                  {getStartButtonText() || (
                     <>
-                      <Play className="mr-2 h-4 w-4" />
+                      <Coins className="mr-2 h-4 w-4" />
                       Start Game
                     </>
                   )}
@@ -217,7 +230,7 @@ export default function GameRoomPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5" />
-                Teams ({roomPlayers?.length || 0}/8)
+                Teams ({roomPlayers?.length || 0}/{gameConfig?.maxTotalPlayers || '...'})
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -317,13 +330,26 @@ export default function GameRoomPage() {
                   {roomCode}
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  Minimum 2 players per team required to start
+                  {gameConfig ? (
+                    `Minimum ${gameConfig.minThieves} thieves, ${gameConfig.minPolice} police (${gameConfig.minPlayersToStart} total) required to start`
+                  ) : (
+                    'Loading requirements...'
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
         )}
       </main>
+
+      {roomData?._id && (
+        <EntryFeeDialog
+          isOpen={isEntryFeeDialogOpen}
+          onClose={handleEntryFeeDialogClose}
+          onSuccess={handleGameStarted}
+          roomId={roomData._id}
+        />
+      )}
     </div>
   )
 } 

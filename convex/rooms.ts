@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { api } from "./_generated/api";
 
 // Generate a random 6-character room code
 const generateRoomCode = (): string => {
@@ -14,7 +15,6 @@ const generateRoomCode = (): string => {
 export const createRoom = mutation({
   args: {
     creator: v.string(),
-    entryFee: v.number(),
     nickname: v.optional(v.string()),
     role: v.union(v.literal("thief"), v.literal("police")),
   },
@@ -38,13 +38,16 @@ export const createRoom = mutation({
         .first();
     }
 
-    // Create room
+    // Get game config for min players
+    const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+    
+    // Create room without entry fee (will be set when starting game)
     const roomId = await ctx.db.insert("rooms", {
       creator: args.creator,
-      entryFee: args.entryFee,
+      entryFee: 0, // Will be set when starting the game
       started: false,
       finalized: false,
-      requiredMinPlayers: 4, // 2 thieves, 2 police minimum
+      requiredMinPlayers: config.minPlayersToStart,
       currentRound: 0,
       maxRounds: 4,
       roomCode,
@@ -101,14 +104,24 @@ export const joinRoom = mutation({
       throw new Error("Already in this room");
     }
 
-    // Check team balance (max 4 players per team)
+    // Get game config for player limits
+    const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+    
+    // Check team balance and total player limit
     const players = await ctx.db
       .query("players")
       .withIndex("by_room", (q) => q.eq("roomId", room._id))
       .collect();
 
+    // Check total players limit
+    if (players.length >= config.maxTotalPlayers) {
+      throw new Error("Room is full");
+    }
+
+    // Check team balance (max half of total players per team)
+    const maxPerTeam = Math.floor(config.maxTotalPlayers / 2);
     const roleCount = players.filter(p => p.role === args.role).length;
-    if (roleCount >= 4) {
+    if (roleCount >= maxPerTeam) {
       throw new Error(`Team ${args.role} is full`);
     }
 
@@ -133,6 +146,7 @@ export const getRoomByCode = query({
     v.null(),
     v.object({
       _id: v.id("rooms"),
+      _creationTime: v.number(),
       creator: v.string(),
       entryFee: v.number(),
       started: v.boolean(),
@@ -164,9 +178,11 @@ export const getRoomPlayers = query({
   args: { roomId: v.id("rooms") },
   returns: v.array(v.object({
     _id: v.id("players"),
+    _creationTime: v.number(),
     address: v.string(),
     nickname: v.optional(v.string()),
     role: v.union(v.literal("thief"), v.literal("police")),
+    roomId: v.id("rooms"),
     eliminated: v.boolean(),
     moves: v.array(v.string()),
     hasCommitted: v.boolean(),
@@ -180,7 +196,12 @@ export const getRoomPlayers = query({
 });
 
 export const startGame = mutation({
-  args: { roomId: v.id("rooms"), creatorAddress: v.string() },
+  args: { 
+    roomId: v.id("rooms"), 
+    creatorAddress: v.string(),
+    entryFee: v.number(),
+    transactionHash: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const room = await ctx.db.get(args.roomId);
@@ -196,6 +217,13 @@ export const startGame = mutation({
       throw new Error("Game already started");
     }
 
+    if (args.entryFee < 2) {
+      throw new Error("Minimum entry fee is 2 MON");
+    }
+
+    // Get game config for minimum players
+    const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+    
     // Check minimum players
     const players = await ctx.db
       .query("players")
@@ -205,13 +233,18 @@ export const startGame = mutation({
     const thieves = players.filter(p => p.role === "thief");
     const police = players.filter(p => p.role === "police");
 
-    if (thieves.length < 2 || police.length < 2) {
-      throw new Error("Need at least 2 thieves and 2 police to start");
+    if (thieves.length < config.minThieves || police.length < config.minPolice) {
+      throw new Error(`Need at least ${config.minThieves} thieves and ${config.minPolice} police to start`);
     }
 
-    // Start the game
+    if (players.length < config.minPlayersToStart) {
+      throw new Error(`Need at least ${config.minPlayersToStart} players to start`);
+    }
+
+    // Start the game with entry fee
     await ctx.db.patch(args.roomId, {
       started: true,
+      entryFee: args.entryFee,
       gamePhase: "voting" as const,
       phaseEndTime: Date.now() + 20000, // 20 seconds for voting
       currentRound: 1,

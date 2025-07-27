@@ -17,7 +17,6 @@ export default function CreateGamePage() {
   const { address, isConnected } = useAccount()
   const createRoom = useMutation(api.rooms.createRoom)
 
-  const [entryFee, setEntryFee] = useState('2')
   const [nickname, setNickname] = useState('')
   const [selectedRole, setSelectedRole] = useState<'thief' | 'police'>('thief')
   const [isLoading, setIsLoading] = useState(false)
@@ -28,17 +27,10 @@ export default function CreateGamePage() {
       return
     }
 
-    const fee = parseFloat(entryFee)
-    if (fee < 2) {
-      alert('Minimum entry fee is 2 MON')
-      return
-    }
-
     setIsLoading(true)
     try {
-              const result = await createRoom({
+      const result = await createRoom({
         creator: address,
-        entryFee: fee,
         nickname: nickname || undefined,
         role: selectedRole,
       })
@@ -91,23 +83,6 @@ export default function CreateGamePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Entry Fee */}
-            <div className="space-y-2">
-              <Label htmlFor="entryFee">Entry Fee (MON)</Label>
-              <Input
-                id="entryFee"
-                type="number"
-                min="2"
-                step="0.1"
-                value={entryFee}
-                onChange={(e) => setEntryFee(e.target.value)}
-                placeholder="Minimum 2 MON"
-              />
-              <p className="text-xs text-muted-foreground">
-                Higher entry fees create larger prize pools
-              </p>
-            </div>
-
             {/* Nickname */}
             <div className="space-y-2">
               <Label htmlFor="nickname">Nickname (Optional)</Label>

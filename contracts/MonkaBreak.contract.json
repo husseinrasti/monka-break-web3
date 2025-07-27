@@ -1,0 +1,67 @@
+{
+  "contractName": "MonkaBreak",
+  "contractAddress": "0x8a78cCB5a19aa9098F7400891d23672E1Ed7B0D1",
+  "network": "monad-testnet",
+  "chainId": 10143,
+  "rpcUrl": "https://testnet-rpc.monad.xyz",
+  "explorerUrl": "https://testnet.monadexplorer.com",
+  "deploymentTxHash": "0x977c9ea9a2f956232a8a12bc7b6533ce5400262cad5b59d044035338bdcd0cf1",
+  "deploymentBlock": 28079543,
+  "verified": true,
+  "verificationUrl": "https://testnet.monadexplorer.com/address/0x8a78cCB5a19aa9098F7400891d23672E1Ed7B0D1",
+  "version": "1.0.0",
+  "compiler": "0.8.28",
+  "deployedAt": "2025-01-27T13:28:00Z",
+  "constants": {
+    "MIN_ENTRY_FEE": "2000000000000000000",
+    "MIN_THIEVES": 3,
+    "MIN_POLICE": 3,
+    "MAX_PLAYERS": 10,
+    "TOTAL_STAGES": 4,
+    "NUM_PATHS": 3
+  },
+  "gameRules": {
+    "minEntryFeeWei": "2000000000000000000",
+    "minEntryFeeETH": "2.0",
+    "minPlayers": 6,
+    "maxPlayers": 10,
+    "teamBalanceRequired": true,
+    "stagesTotal": 4,
+    "pathsAvailable": ["A", "B", "C"],
+    "winConditions": {
+      "police": "Eliminate all thieves",
+      "thieves": "Survive all stages and choose winning path"
+    }
+  },
+  "events": [
+    "GameCreated",
+    "PlayerJoined", 
+    "GameStarted",
+    "MoveCommitted",
+    "VoteCast",
+    "StageCompleted", 
+    "GameFinalized",
+    "PrizeClaimed"
+  ],
+  "mainFunctions": {
+    "admin": [
+      "createGame",
+      "joinGame", 
+      "startGame"
+    ],
+    "gameplay": [
+      "commitMove",
+      "voteBlock", 
+      "processStage",
+      "finalizeGame"
+    ],
+    "view": [
+      "getPlayers",
+      "getGameState",
+      "getVaultBalance", 
+      "getPoliceVote",
+      "isWinner",
+      "getCurrentGameId"
+    ]
+  }
+} 

@@ -2,6 +2,13 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  gameConfig: defineTable({
+    minThieves: v.number(),
+    minPolice: v.number(),
+    minPlayersToStart: v.number(),
+    maxTotalPlayers: v.number(),
+  }),
+
   rooms: defineTable({
     creator: v.string(), // wallet address
     entryFee: v.number(), // in MON
