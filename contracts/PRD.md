@@ -1,155 +1,109 @@
 **Product Requirements Document (PRD)**
 
-**Project:** Crypto Heist
+**Project:** MonkaBreak
 **Component:** Smart Contract (Solidity - Monad Testnet)
-**Goal:** Implement the on-chain logic for the Crypto Heist game
+**Goal:** Minimal on-chain logic to handle game funding, starting, and reward distribution
 
 ---
 
 ## 1. Overview
 
-Crypto Heist is a real-time, team-based strategy game on the Monad Testnet. Players join a room as either Thieves or Police and attempt to either break into a crypto vault or prevent it. All gameplay logic and outcomes are recorded on-chain, including vault funding, round progression, move commitments, and prize distribution.
+MonkaBreak is a real-time team-based strategy game where players compete as Thieves and Police. The smart contract is designed to handle only essential on-chain logic:
+
+* Game creation and unique ID registration
+* Game starting with MON deposit into a vault
+* Finalization and distribution of prize vault to winners
+  All other game logic (player states, moves, stage control) is handled off-chain using Convex and frontend logic.
 
 ---
 
-## 2. Core Concepts
+## 2. Responsibilities
 
-### 2.1 Game Room
+### ✅ Handled by Contract
 
-* Created by a user with a customizable entry fee (min 2 MON)
-* Entry fee is not sent until game is started
-* Game can only start if at least:
+* Registering a new game room with a unique ID and creator
+* Receiving and locking the entry fee when the game starts
+* Recording the block number at game start for randomness
+* Finalizing the game and distributing the vault to a given list of winners
 
-  * 3 Thieves
-  * 3 Police
-  * Max total players = 10
-* Room creator can also play and select their team
+### ❌ Not Handled by Contract
 
-### 2.2 Teams
-
-* Players choose their own team (if not full)
-* Nicknames:
-
-  * Custom nickname allowed at join
-  * If empty:
-
-    * Thieves: default "John"
-    * Police: random from \["Keone", "Bill", "Mike", "James"]
-
-### 2.3 Vault / Prize Pool
-
-* Entry fee from all players is pooled into a vault (only upon game start)
-* Locked until game ends
-* Winning players claim rewards on-chain
+* Player registration and roles
+* Team assignment (Thief or Police)
+* Voting and move validation per stage
+* Round progression logic
+* Nickname management
+* Game logic timing (Multisynq and frontend handle this)
 
 ---
 
-## 3. Game Lifecycle
+## 3. Contract Functions
 
-### 3.1 Game Start
+### Game Lifecycle
 
-* Starts when creator clicks "Start" and team balance rules are satisfied
-* Contract records start block to generate randomness for stage 4
+* `createGame(uint256 gameId)`
 
-### 3.2 Game Stages
+  * Creates a new game with `msg.sender` as creator
+  * No funds are sent yet
 
-* 4 total stages (rounds)
+* `startGame(uint256 gameId)` **payable**
 
-* In stages 1–3:
+  * Can only be called by creator
+  * Requires `msg.value` to be greater than or equal to minimum (2 MON)
+  * Saves `entryFee`, `vault`, and current block as `startBlock`
+  * Marks game as started
 
-  * Each Thief selects a path (A, B, C) independently
-  * Police team votes on 1 path to block (on-chain commit)
-  * Any Thief who chooses the blocked path is eliminated
-  * Others progress
+* `finalizeGame(uint256 gameId, address[] calldata winners)`
 
-* Stage 4:
-
-  * Thieves again select paths independently
-  * Police vote on 1 path to block
-  * A random path is selected as the winning path using stored `startBlock`:
-
-    ```solidity
-    uint8 winningPath = uint8(uint256(blockhash(startBlock)) % 3); // 0,1,2
-    ```
-  * Surviving Thieves who chose the winning path = winners
-
-### 3.3 Timeouts
-
-* Each stage:
-
-  * 20s for voting (off-chain with Multisynq)
-  * 10s for on-chain submission (if >= 2/3 of team do not commit → team loses stage)
-* 5s cooldown between stages
-
-### 3.4 Game End
-
-* Game ends immediately after stage 4 or if all Thieves are eliminated
-* Creator can call `finalizeGame()` to trigger:
-
-  * Verify result
-  * Distribute vault to winners equally
-
----
-
-## 4. Functions
-
-### Admin Functions
-
-* `createGame(uint256 entryFee)`
-* `joinGame(uint256 gameId, string memory nickname, bool isThief)`
-* `startGame(uint256 gameId)`
-
-### Gameplay
-
-* `commitMove(uint256 gameId, uint8 pathChoice)` // Thieves only
-* `voteBlock(uint256 gameId, uint8 pathChoice)` // Police only
-* `finalizeGame(uint256 gameId)`
+  * Can only be called by creator
+  * Can only be called once
+  * Splits the vault evenly among provided `winners`
+  * Rejects if no winners or game not started
 
 ### View Functions
 
-* `getPlayers(uint256 gameId)`
-* `getGameState(uint256 gameId)`
-* `getVaultBalance(uint256 gameId)`
+* `getGame(uint256 gameId)`
+
+  * Returns public game data: creator, vault, started, finalized, entryFee, startBlock
 
 ---
 
-## 5. Storage Structures (Simplified)
+## 4. Storage Structures (Simplified)
 
 ```solidity
-struct Player {
-  address addr;
-  string nickname;
-  bool isThief;
-  bool eliminated;
-  uint8[4] moves;
-}
-
-struct GameRoom {
-  uint256 id;
+struct Game {
   address creator;
+  uint256 vault;
   uint256 entryFee;
   uint256 startBlock;
   bool started;
   bool finalized;
-  Player[] players;
-  uint256 vault;
-  mapping(uint256 => uint8) policeVotes; // stage => path
-  mapping(address => bool) winners;
 }
+
+mapping(uint256 => Game) public games;
 ```
+
+---
+
+## 5. Events
+
+* `GameCreated(uint256 gameId, address creator)`
+* `GameStarted(uint256 gameId, uint256 vault, uint256 blockNumber)`
+* `GameFinalized(uint256 gameId, address[] winners)`
 
 ---
 
 ## 6. Notes
 
-* Game logic assumes off-chain vote sync with Multisynq and only final votes submitted on-chain
-* All funds must be safely handled and stored until finalization
-* Frontend/Convex will handle room listing, active player tracking, etc.
+* The `entryFee` is not set during game creation, only at start time via payable function
+* Vault is locked on-chain and only distributed after a successful finalize call
+* The off-chain system (Convex + frontend) must validate stages, player status, and provide winner addresses
+* `gameId` must be unique and generated off-chain (e.g., by frontend)
 
 ---
 
 ## 7. Future Improvements
 
-* Add support for game replay or historical logs
-* Add NFT mint for winners
-* Extend to allow spectators or replays
+* Add pause/emergency functions for admin
+* Add claimable reward mechanism instead of direct transfers
+* Optional: log game metadata or hashes of off-chain game data for replay verification

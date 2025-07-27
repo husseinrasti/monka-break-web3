@@ -1,67 +1,299 @@
 {
   "contractName": "MonkaBreak",
-  "contractAddress": "0x8a78cCB5a19aa9098F7400891d23672E1Ed7B0D1",
-  "network": "monad-testnet",
-  "chainId": 10143,
-  "rpcUrl": "https://testnet-rpc.monad.xyz",
-  "explorerUrl": "https://testnet.monadexplorer.com",
-  "deploymentTxHash": "0x977c9ea9a2f956232a8a12bc7b6533ce5400262cad5b59d044035338bdcd0cf1",
-  "deploymentBlock": 28079543,
-  "verified": true,
-  "verificationUrl": "https://testnet.monadexplorer.com/address/0x8a78cCB5a19aa9098F7400891d23672E1Ed7B0D1",
   "version": "1.0.0",
-  "compiler": "0.8.28",
-  "deployedAt": "2025-01-27T13:28:00Z",
-  "constants": {
-    "MIN_ENTRY_FEE": "2000000000000000000",
-    "MIN_THIEVES": 3,
-    "MIN_POLICE": 3,
-    "MAX_PLAYERS": 10,
-    "TOTAL_STAGES": 4,
-    "NUM_PATHS": 3
+  "compiler": {
+    "solidity": "0.8.28",
+    "optimizer": true
   },
-  "gameRules": {
-    "minEntryFeeWei": "2000000000000000000",
-    "minEntryFeeETH": "2.0",
-    "minPlayers": 6,
-    "maxPlayers": 10,
-    "teamBalanceRequired": true,
-    "stagesTotal": 4,
-    "pathsAvailable": ["A", "B", "C"],
-    "winConditions": {
-      "police": "Eliminate all thieves",
-      "thieves": "Survive all stages and choose winning path"
+  "networks": {
+    "monad_testnet": {
+      "chainId": 10143,
+      "rpcUrl": "https://testnet-rpc.monad.xyz",
+      "contractAddress": "0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC",
+      "deploymentBlock": 28137526,
+      "deploymentTx": "0x52f8e99df40db8eacfa3846ecae6ebe6328ad920401114847bd18837949354d3",
+      "explorerUrl": "https://testnet-explorer.monad.xyz/address/0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC",
+      "verified": true
     }
   },
-  "events": [
-    "GameCreated",
-    "PlayerJoined", 
-    "GameStarted",
-    "MoveCommitted",
-    "VoteCast",
-    "StageCompleted", 
-    "GameFinalized",
-    "PrizeClaimed"
+  "constants": {
+    "MIN_ENTRY_FEE": "1000000000000000000",
+    "MIN_ENTRY_FEE_HUMAN": "1 MON"
+  },
+  "abi": [
+    {
+      "type": "function",
+      "name": "MIN_ENTRY_FEE",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "createGame",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "finalizeGame",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "winners",
+          "type": "address[]",
+          "internalType": "address[]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "games",
+      "inputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "creator",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "vault",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "entryFee",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "startBlock",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "started",
+          "type": "bool",
+          "internalType": "bool"
+        },
+        {
+          "name": "finalized",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getGame",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "creator",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "vault",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "entryFee",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "startBlock",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "started",
+          "type": "bool",
+          "internalType": "bool"
+        },
+        {
+          "name": "finalized",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "startGame",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "event",
+      "name": "GameCreated",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "creator",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "GameFinalized",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "winners",
+          "type": "address[]",
+          "indexed": false,
+          "internalType": "address[]"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "GameStarted",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "vault",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "blockNumber",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "GameAlreadyExists",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "GameAlreadyFinalized",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "GameAlreadyStarted",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "GameNotFound",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "GameNotStarted",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InsufficientEntryFee",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NoWinners",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "OnlyCreatorCanCall",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "TransferFailed",
+      "inputs": []
+    }
   ],
-  "mainFunctions": {
-    "admin": [
-      "createGame",
-      "joinGame", 
-      "startGame"
-    ],
-    "gameplay": [
-      "commitMove",
-      "voteBlock", 
-      "processStage",
-      "finalizeGame"
-    ],
-    "view": [
-      "getPlayers",
-      "getGameState",
-      "getVaultBalance", 
-      "getPoliceVote",
-      "isWinner",
-      "getCurrentGameId"
-    ]
+  "usageExamples": {
+    "web3js": {
+      "initialization": "const contract = new web3.eth.Contract(abi, '0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC');",
+      "createGame": "await contract.methods.createGame(gameId).send({from: userAddress});",
+      "startGame": "await contract.methods.startGame(gameId).send({from: creator, value: web3.utils.toWei('1', 'ether')});",
+      "finalizeGame": "await contract.methods.finalizeGame(gameId, winnersArray).send({from: creator});",
+      "getGame": "const gameData = await contract.methods.getGame(gameId).call();"
+    },
+    "ethersjs": {
+      "initialization": "const contract = new ethers.Contract('0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC', abi, signer);",
+      "createGame": "await contract.createGame(gameId);",
+      "startGame": "await contract.startGame(gameId, {value: ethers.utils.parseEther('1')});",
+      "finalizeGame": "await contract.finalizeGame(gameId, winnersArray);",
+      "getGame": "const gameData = await contract.getGame(gameId);"
+    }
+  },
+  "eventFilters": {
+    "GameCreated": "contract.filters.GameCreated(gameId, null)",
+    "GameStarted": "contract.filters.GameStarted(gameId)",
+    "GameFinalized": "contract.filters.GameFinalized(gameId)"
   }
 } 
