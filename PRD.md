@@ -1,14 +1,14 @@
 **Product Requirements Document (PRD)**
 
-**Project:** Crypto Heist
+**Project:** MonkaBreak
 **Component:** App (Frontend + Convex + Multisynq + viem)
-**Goal:** Build the frontend interface and real-time multiplayer logic for Crypto Heist, integrating with the smart contract and enabling a fast, dynamic on-chain gaming experience.
+**Goal:** Build the frontend interface and real-time multiplayer logic for MonkaBreak, integrating with the smart contract and enabling a fast, dynamic on-chain gaming experience.
 
 ---
 
 ## 1. Overview
 
-Crypto Heist is a strategic on-chain game built on the Monad Testnet. Players join game rooms as either Thieves or Police. Using Multisynq for real-time coordination and viem for wallet interactions, the frontend allows users to create/join rooms, participate in rounds, and finalize games.
+MonkaBreak is a strategic on-chain game built on the Monad Testnet. Players join game rooms as either Thieves or Police. Using Multisynq for real-time coordination and viem for wallet interactions, the frontend allows users to create/join rooms, participate in rounds, and finalize games.
 
 Convex is used for off-chain data such as room listings, user nicknames, player states, and round syncing.
 

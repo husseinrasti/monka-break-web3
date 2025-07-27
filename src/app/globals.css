@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 6%; /* #0E100F - dark grey background */
+    --foreground: 60 9% 98%; /* #FBFAF9 - off-white text */
+
+    --card: 256 100% 16%; /* #200052 - deep purple-black */
+    --card-foreground: 60 9% 98%; /* #FBFAF9 */
+
+    --popover: 256 100% 16%; /* #200052 */
+    --popover-foreground: 60 9% 98%; /* #FBFAF9 */
+
+    --primary: 249 90% 70%; /* #836EF9 - vibrant purple */
+    --primary-foreground: 0 0% 100%; /* #FFFFFF */
+
+    --secondary: 256 100% 16%; /* #200052 */
+    --secondary-foreground: 60 9% 98%; /* #FBFAF9 */
+
+    --muted: 0 0% 6%; /* #0E100F */
+    --muted-foreground: 60 9% 98%; /* #FBFAF9 */
+
+    --accent: 327 95% 33%; /* #A0055D - danger/warning */
+    --accent-foreground: 0 0% 100%; /* #FFFFFF */
+
+    --destructive: 327 95% 33%; /* #A0055D */
+    --destructive-foreground: 0 0% 100%; /* #FFFFFF */
+
+    --border: 256 100% 16%; /* #200052 */
+    --input: 256 100% 16%; /* #200052 */
+    --ring: 249 90% 70%; /* #836EF9 */
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-muted;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-primary rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary/80;
+} 
