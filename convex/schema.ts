@@ -18,7 +18,9 @@ export default defineSchema({
     })),
     defaultThiefNames: v.optional(v.array(v.string())),
     defaultPoliceNames: v.optional(v.array(v.string())),
-    allowUnevenTeams: v.optional(v.boolean())
+    allowUnevenTeams: v.optional(v.boolean()),
+    pathNames: v.optional(v.array(v.string())),
+    stageNames: v.optional(v.array(v.string()))
   }),
 
   rooms: defineTable({

@@ -13,6 +13,69 @@ const generateRoomCode = (): string => {
   return result;
 };
 
+// Helper function to resolve round results
+const resolveRoundResults = async (ctx: any, roomId: Id<"rooms">, currentRound: number) => {
+  // Get all votes for this round
+  const votes = await ctx.db
+    .query("votes")
+    .withIndex("by_room_and_round", (q) => 
+      q.eq("roomId", roomId).eq("round", currentRound)
+    )
+    .collect();
+
+  // Get all players in the room
+  const players = await ctx.db
+    .query("players")
+    .withIndex("by_room", (q) => q.eq("roomId", roomId))
+    .collect();
+
+  // Count votes by choice
+  const voteCounts: Record<string, number> = {};
+  votes.forEach(vote => {
+    voteCounts[vote.choice] = (voteCounts[vote.choice] || 0) + 1;
+  });
+
+  // Find the most voted path (police choice)
+  const policeVotes = votes.filter(v => v.role === 'police');
+  const policeChoiceCounts: Record<string, number> = {};
+  policeVotes.forEach(vote => {
+    policeChoiceCounts[vote.choice] = (policeChoiceCounts[vote.choice] || 0) + 1;
+  });
+
+  const mostVotedPath = Object.entries(policeChoiceCounts).reduce((a, b) => 
+    policeChoiceCounts[a[0]] > policeChoiceCounts[b[0]] ? a : b
+  )?.[0] || Object.keys(voteCounts)[0] || '';
+
+  // Get game config for path names
+  const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+  const stageIndex = currentRound - 1;
+  const stagePaths = config.pathNames?.slice(stageIndex * 3, stageIndex * 3 + 3) || [];
+  
+  // Determine winning path (randomly select from stage paths, excluding police choice)
+  const availablePaths = stagePaths.filter(path => path !== mostVotedPath);
+  const winningPath = availablePaths[Math.floor(Math.random() * availablePaths.length)] || stagePaths[0] || '';
+
+  // Eliminate players who didn't vote or voted for the losing path
+  const eliminatedPlayers: Id<"players">[] = [];
+  
+  for (const player of players) {
+    const playerVote = votes.find(v => v.address === player.address);
+    
+    // Eliminate if no vote or voted for losing path
+    if (!playerVote || playerVote.choice !== winningPath) {
+      await ctx.db.patch(player._id, { eliminated: true });
+      eliminatedPlayers.push(player._id);
+    }
+  }
+
+  return {
+    winningPath,
+    eliminatedPlayers: eliminatedPlayers.length,
+    totalVotes: votes.length,
+    policeChoice: mostVotedPath
+  };
+};
+
 export const createRoom = mutation({
   args: {
     creator: v.string(),
@@ -305,6 +368,86 @@ export const startGame = mutation({
     });
 
     return null;
+  },
+});
+
+export const resolveRound = mutation({
+  args: {
+    roomId: v.id("rooms"),
+  },
+  returns: v.object({
+    winningPath: v.string(),
+    eliminatedPlayers: v.number(),
+    totalVotes: v.number(),
+    policeChoice: v.string(),
+    nextPhase: v.union(
+      v.literal("voting"),
+      v.literal("committing"),
+      v.literal("cooldown"),
+      v.literal("finished")
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const room = await ctx.db.get(args.roomId);
+    if (!room) {
+      throw new Error("Room not found");
+    }
+
+    if (!room.started || room.finalized) {
+      throw new Error("Game not active");
+    }
+
+    // Resolve the current round
+    const result = await resolveRoundResults(ctx, args.roomId, room.currentRound);
+    
+    // Get config for timing
+    const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+    
+    // Determine next phase
+    let nextPhase: "voting" | "committing" | "cooldown" | "finished" = "finished";
+    let phaseEndTime: number | undefined;
+    
+    if (room.currentRound < room.maxRounds) {
+      // More rounds to go
+      if (room.gamePhase === "voting") {
+        nextPhase = "committing";
+        phaseEndTime = Date.now() + (config.timings.commitDuration * 1000);
+      } else if (room.gamePhase === "committing") {
+        nextPhase = "cooldown";
+        phaseEndTime = Date.now() + (config.timings.cooldown * 1000);
+      } else if (room.gamePhase === "cooldown") {
+        nextPhase = "voting";
+        phaseEndTime = Date.now() + (config.timings.voteDuration * 1000);
+      }
+    } else {
+      // Final round finished
+      nextPhase = "finished";
+    }
+
+    // Update room state
+    const updateData: any = {
+      gamePhase: nextPhase,
+      winningPath: result.winningPath,
+    };
+
+    if (nextPhase === "voting" && room.currentRound < room.maxRounds) {
+      updateData.currentRound = room.currentRound + 1;
+      updateData.phaseEndTime = phaseEndTime;
+    } else if (nextPhase === "finished") {
+      updateData.phaseEndTime = undefined;
+    } else {
+      updateData.phaseEndTime = phaseEndTime;
+    }
+
+    await ctx.db.patch(args.roomId, updateData);
+
+    return {
+      winningPath: result.winningPath,
+      eliminatedPlayers: result.eliminatedPlayers,
+      totalVotes: result.totalVotes,
+      policeChoice: result.policeChoice,
+      nextPhase,
+    };
   },
 });
 

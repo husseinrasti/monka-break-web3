@@ -25,6 +25,9 @@ export const GameResults: React.FC<GameResultsProps> = ({
 }) => {
   const { address } = useAccount()
   const [isFinalizing, setIsFinalizing] = useState(false)
+
+  // Get game config for dynamic stage names
+  const gameConfig = useQuery(api.gameConfig.getOrCreateGameConfig, {})
   const [contractData, setContractData] = useState<{
     vault: number
     entryFee: number

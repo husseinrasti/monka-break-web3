@@ -16,6 +16,7 @@ import { GameVoting } from '@/components/game-voting'
 import { GameCommit } from '@/components/game-commit'
 import { GameResults } from '@/components/game-results'
 import { RefundDialog } from '@/components/refund-dialog'
+import { RoundTimer } from '@/components/round-timer'
 
 export default function GameRoomPage() {
   const params = useParams()
@@ -38,8 +39,9 @@ export default function GameRoomPage() {
   const [timeRemaining, setTimeRemaining] = useState(0)
   const [isEntryFeeDialogOpen, setIsEntryFeeDialogOpen] = useState(false)
   const [isRefundDialogOpen, setIsRefundDialogOpen] = useState(false)
+  const [isPhaseActive, setIsPhaseActive] = useState(true)
 
-  // Calculate time remaining for current phase
+  // Calculate time remaining for current phase and phase active state
   useEffect(() => {
     if (!roomData?.phaseEndTime) return
 
@@ -47,13 +49,17 @@ export default function GameRoomPage() {
       const now = Date.now()
       const remaining = Math.max(0, roomData.phaseEndTime! - now)
       setTimeRemaining(remaining)
+      
+      // Update phase active state
+      const isActive = remaining > 0 && (roomData.gamePhase === 'voting' || roomData.gamePhase === 'committing')
+      setIsPhaseActive(isActive)
     }
 
     updateTimer()
     const interval = setInterval(updateTimer, 1000)
 
     return () => clearInterval(interval)
-  }, [roomData?.phaseEndTime])
+  }, [roomData?.phaseEndTime, roomData?.gamePhase])
 
   const handleStartGameClick = () => {
     if (!isConnected || !address || !roomData) return
@@ -79,17 +85,25 @@ export default function GameRoomPage() {
   }
 
   const getPhaseDisplay = () => {
-    if (!roomData) return null
+    if (!roomData || !gameConfig) return null
+
+    const getStageName = (round: number) => {
+      const stageIndex = round - 1
+      if (gameConfig?.stageNames && gameConfig.stageNames.length === 4) {
+        return gameConfig.stageNames[stageIndex] || `Stage ${round}`
+      }
+      return `Stage ${round}`
+    }
 
     switch (roomData.gamePhase) {
       case 'waiting':
         return 'Waiting for players...'
       case 'voting':
-        return `Round ${roomData.currentRound}: Team Voting`
+        return `${getStageName(roomData.currentRound)}: Team Voting`
       case 'committing':
-        return `Round ${roomData.currentRound}: Blockchain Commit`
+        return `${getStageName(roomData.currentRound)}: Blockchain Commit`
       case 'cooldown':
-        return `Round ${roomData.currentRound}: Processing...`
+        return `${getStageName(roomData.currentRound)}: Processing...`
       case 'finished':
         return 'Game Finished!'
       default:
@@ -312,12 +326,26 @@ export default function GameRoomPage() {
         {/* Game Phase Content */}
         {roomData.started && currentPlayer && (
           <div className="mt-6">
+            {/* Round Timer */}
+            <RoundTimer
+              roomId={roomData._id}
+              phaseEndTime={roomData.phaseEndTime}
+              gamePhase={roomData.gamePhase}
+              currentRound={roomData.currentRound}
+              onPhaseEnd={() => {
+                // Refresh data when phase ends
+                window.location.reload()
+              }}
+            />
+            
             {roomData.gamePhase === 'voting' && (
               <GameVoting
                 roomId={roomData._id}
                 currentRound={roomData.currentRound}
                 playerRole={currentPlayer.role}
                 playerAddress={address!}
+                phaseEndTime={roomData.phaseEndTime}
+                isPhaseActive={isPhaseActive}
               />
             )}
             

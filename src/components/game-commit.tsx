@@ -22,6 +22,9 @@ export const GameCommit: React.FC<GameCommitProps> = ({
 }) => {
   const [isCommitting, setIsCommitting] = useState(false)
 
+  // Get game config for dynamic stage names
+  const gameConfig = useQuery(api.gameConfig.getOrCreateGameConfig, {})
+
   const commitVote = useMutation(api.votes.commitVote)
   
   const playerVote = useQuery(api.votes.getPlayerVote, {
@@ -66,7 +69,9 @@ export const GameCommit: React.FC<GameCommitProps> = ({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Clock className="h-5 w-5" />
-          Round {currentRound}: Blockchain Commit
+          {gameConfig?.stageNames && gameConfig.stageNames.length === 4 
+            ? gameConfig.stageNames[currentRound - 1] 
+            : `Stage ${currentRound}`}: Blockchain Commit
         </CardTitle>
         <CardDescription>
           Commit your vote to the Monad blockchain to make it final

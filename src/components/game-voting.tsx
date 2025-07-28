@@ -5,7 +5,6 @@ import { useMutation, useQuery } from 'convex/react'
 import { api } from '@/../convex/_generated/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Vote, Users } from 'lucide-react'
 import { Id } from '@/../convex/_generated/dataModel'
@@ -15,16 +14,19 @@ interface GameVotingProps {
   currentRound: number
   playerRole: 'thief' | 'police'
   playerAddress: string
+  phaseEndTime?: number
+  isPhaseActive: boolean
 }
 
 export const GameVoting: React.FC<GameVotingProps> = ({ 
   roomId, 
   currentRound, 
   playerRole, 
-  playerAddress 
+  playerAddress,
+  phaseEndTime,
+  isPhaseActive
 }) => {
   const [selectedPath, setSelectedPath] = useState('')
-  const [customPath, setCustomPath] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const submitVote = useMutation(api.votes.submitVote)
@@ -48,15 +50,14 @@ export const GameVoting: React.FC<GameVotingProps> = ({
   }, [playerVote, selectedPath])
 
   const handleVoteSubmit = async () => {
-    const finalChoice = selectedPath === 'custom' ? customPath : selectedPath
-    if (!finalChoice.trim()) return
+    if (!selectedPath.trim()) return
 
     setIsSubmitting(true)
     try {
       await submitVote({
         roomId,
         address: playerAddress,
-        choice: finalChoice.trim(),
+        choice: selectedPath.trim(),
       })
     } catch (error) {
       console.error('Failed to submit vote:', error)
@@ -66,14 +67,34 @@ export const GameVoting: React.FC<GameVotingProps> = ({
     }
   }
 
-  const pathOptions = ['Path A', 'Path B', 'Path C']
+  // Get game config for dynamic paths
+  const gameConfig = useQuery(api.gameConfig.getOrCreateGameConfig, {})
+  
+  // Calculate stage index (0-based)
+  const stageIndex = currentRound - 1
+  
+  // Get paths for current stage
+  const getStagePaths = () => {
+    if (!gameConfig?.pathNames || gameConfig.pathNames.length !== 12) {
+      console.warn('Invalid pathNames configuration, using fallback')
+      return ['Path A', 'Path B', 'Path C']
+    }
+    
+    const startIndex = stageIndex * 3
+    const endIndex = startIndex + 3
+    return gameConfig.pathNames.slice(startIndex, endIndex)
+  }
+  
+  const pathOptions = getStagePaths()
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Vote className="h-5 w-5" />
-          Round {currentRound}: Team Voting
+          {gameConfig?.stageNames && gameConfig.stageNames.length === 4 
+            ? gameConfig.stageNames[currentRound - 1] 
+            : `Stage ${currentRound}`}: Team Voting
         </CardTitle>
         <CardDescription>
           {playerRole === 'thief' 
@@ -101,26 +122,6 @@ export const GameVoting: React.FC<GameVotingProps> = ({
                 )}
               </Button>
             ))}
-            
-            {/* Custom Path Option */}
-            <div className="space-y-2">
-              <Button
-                variant={selectedPath === 'custom' ? 'default' : 'outline'}
-                onClick={() => setSelectedPath('custom')}
-                className="justify-start h-12 w-full"
-              >
-                Custom Path
-              </Button>
-              
-              {selectedPath === 'custom' && (
-                <Input
-                  placeholder="Enter your custom path name..."
-                  value={customPath}
-                  onChange={(e) => setCustomPath(e.target.value)}
-                  maxLength={50}
-                />
-              )}
-            </div>
           </div>
         </div>
 
@@ -151,14 +152,16 @@ export const GameVoting: React.FC<GameVotingProps> = ({
           onClick={handleVoteSubmit}
           disabled={
             isSubmitting || 
-            !selectedPath || 
-            (selectedPath === 'custom' && !customPath.trim())
+            !selectedPath ||
+            !isPhaseActive
           }
           className="w-full"
           size="lg"
         >
           {isSubmitting ? (
             'Submitting Vote...'
+          ) : !isPhaseActive ? (
+            'Voting Ended'
           ) : playerVote ? (
             'Update Vote'
           ) : (

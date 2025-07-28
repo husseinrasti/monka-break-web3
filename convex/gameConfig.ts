@@ -15,9 +15,25 @@ const DEFAULT_CONFIG = {
     cooldown: 10,
     voteDuration: 40,
   },
-  defaultThiefNames: ["John", "John", "John"],
+  defaultThiefNames: ["John", "Jack", "Jake", "Jax"],
   defaultPoliceNames: ["Keone", "Bill", "Mike", "James"],
-  allowUnevenTeams: true
+  allowUnevenTeams: true,
+  pathNames: [
+    // Stage 1
+    "Back Alley Node", "Encrypted Duct", "Shadow Port",
+    // Stage 2
+    "ICE Barrier", "Proxy Mirage", "Port 31337",
+    // Stage 3
+    "Zero Gate", "Quantum Loop", "Sigil Channel",
+    // Stage 4
+    "Ghost Tunnel", "Overclocked Exit", "The Final Byte"
+  ],
+  stageNames: [
+    "The Infiltration",
+    "The Firewall", 
+    "The Core Vault",
+    "Final Extraction"
+  ]
 };
 
 export const getGameConfig = query({
@@ -68,7 +84,9 @@ export const getOrCreateGameConfig = query({
     }),
     defaultThiefNames: v.array(v.string()),
     defaultPoliceNames: v.array(v.string()),
-    allowUnevenTeams: v.boolean()
+    allowUnevenTeams: v.boolean(),
+    pathNames: v.array(v.string()),
+    stageNames: v.array(v.string())
   }),
   handler: async (ctx) => {
     // Get existing config or return defaults
@@ -87,7 +105,9 @@ export const getOrCreateGameConfig = query({
         timings: config.timings ?? DEFAULT_CONFIG.timings,
         defaultThiefNames: config.defaultThiefNames ?? DEFAULT_CONFIG.defaultThiefNames,
         defaultPoliceNames: config.defaultPoliceNames ?? DEFAULT_CONFIG.defaultPoliceNames,
-        allowUnevenTeams: config.allowUnevenTeams ?? DEFAULT_CONFIG.allowUnevenTeams
+        allowUnevenTeams: config.allowUnevenTeams ?? DEFAULT_CONFIG.allowUnevenTeams,
+        pathNames: config.pathNames ?? DEFAULT_CONFIG.pathNames,
+        stageNames: config.stageNames ?? DEFAULT_CONFIG.stageNames
       };
     }
     
@@ -142,6 +162,8 @@ export const migrateGameConfig = mutation({
     }
     if (config.defaultPoliceNames === undefined) updates.defaultPoliceNames = DEFAULT_CONFIG.defaultPoliceNames;
     if (config.allowUnevenTeams === undefined) updates.allowUnevenTeams = DEFAULT_CONFIG.allowUnevenTeams;
+    if (config.pathNames === undefined) updates.pathNames = DEFAULT_CONFIG.pathNames;
+    if (config.stageNames === undefined) updates.stageNames = DEFAULT_CONFIG.stageNames;
 
     if (Object.keys(updates).length > 0) {
       await ctx.db.patch(config._id, updates);
@@ -167,7 +189,9 @@ export const updateGameConfig = mutation({
     })),
     defaultThiefNames: v.optional(v.array(v.string())),
     defaultPoliceNames: v.optional(v.array(v.string())),
-    allowUnevenTeams: v.optional(v.boolean())
+    allowUnevenTeams: v.optional(v.boolean()),
+    pathNames: v.optional(v.array(v.string())),
+    stageNames: v.optional(v.array(v.string()))
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -193,6 +217,8 @@ export const updateGameConfig = mutation({
       if (args.defaultThiefNames !== undefined) updates.defaultThiefNames = args.defaultThiefNames;
       if (args.defaultPoliceNames !== undefined) updates.defaultPoliceNames = args.defaultPoliceNames;
       if (args.allowUnevenTeams !== undefined) updates.allowUnevenTeams = args.allowUnevenTeams;
+      if (args.pathNames !== undefined) updates.pathNames = args.pathNames;
+      if (args.stageNames !== undefined) updates.stageNames = args.stageNames;
       
       if (Object.keys(updates).length > 0) {
         await ctx.db.patch(config._id, updates);
