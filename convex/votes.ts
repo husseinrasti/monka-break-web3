@@ -100,7 +100,7 @@ export const getPlayerVote = query({
     committed: v.boolean(),
   })),
   handler: async (ctx, args) => {
-    return await ctx.db
+    const vote = await ctx.db
       .query("votes")
       .withIndex("by_room_round_address", (q) => 
         q.eq("roomId", args.roomId)
@@ -108,6 +108,15 @@ export const getPlayerVote = query({
          .eq("address", args.address)
       )
       .first();
+    
+    if (!vote) return null;
+    
+    // Return only the fields specified in the validator
+    return {
+      _id: vote._id,
+      choice: vote.choice,
+      committed: vote.committed,
+    };
   },
 });
 

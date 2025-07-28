@@ -38,7 +38,7 @@ export default function HomePage() {
       {/* Hero Section */}
       <main className="container mx-auto px-4 py-12">
         <div className="text-center mb-12">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+          <h2 className="text-5xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
             Strategic On-Chain Gaming
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">

@@ -5,7 +5,7 @@ import MonkaBreakABI from '../../contracts/MonkaBreak.abi.json'
 
 // Monad Testnet configuration
 export const monadTestnet = defineChain({
-  id: 41454,
+  id: 10143,
   name: 'Monad Testnet',
   nativeCurrency: {
     decimals: 18,
@@ -18,49 +18,79 @@ export const monadTestnet = defineChain({
     },
   },
   blockExplorers: {
-    default: { name: 'MonadScan', url: 'https://testnet-explorer.monad.xyz' },
+    default: { name: 'Monad Explorer', url: 'https://testnet.monadexplorer.com' },
   },
 })
 
-// Create public client for reading
-export const publicClient = createPublicClient({
-  chain: monadTestnet,
-  transport: http(),
-})
+// Contract address from environment or use provided address
+const GAME_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_GAME_CONTRACT_ADDRESS || '0x7DdD1840B0130e7D0357f130Db52Ad1c6A833dbd') as `0x${string}`
+const GAME_CONTRACT_ABI = MonkaBreakABI
 
-// Create wallet client for transactions
-export const createWalletClientForBrowser = () => {
-  if (typeof window === 'undefined') return null
-  if (!(window as any).ethereum) return null
-  
-  return createWalletClient({
+// Utility functions for MON <-> Wei conversion
+export const gameUtils = {
+  parseMonToWei: (mon: number): bigint => {
+    return BigInt(Math.floor(mon * 1e18))
+  },
+  formatWeiToMon: (wei: bigint): number => {
+    return Number(wei) / 1e18
+  }
+}
+
+// Helper functions
+const createPublicClientForBrowser = () => {
+  return createPublicClient({
     chain: monadTestnet,
-    transport: custom((window as any).ethereum),
+    transport: http()
   })
 }
 
-// Smart contract ABI - Using the actual deployed contract ABI
-export const GAME_CONTRACT_ABI = MonkaBreakABI
-
-// Deployed contract address from environment variables
-export const GAME_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_GAME_CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`
+const createWalletClientForBrowser = () => {
+  if (typeof window === 'undefined' || !window.ethereum) {
+    return null
+  }
+  
+  return createWalletClient({
+    chain: monadTestnet,
+    transport: custom(window.ethereum)
+  })
+}
 
 // Contract interaction functions
 export const smartContract = {
-  // Create a new game on the blockchain and lock entry fee
-  async createGameWithFee(entryFee: bigint) {
+  // Create a new game on the blockchain (called when room is created)
+  async createGame(gameId: number) {
     const walletClient = createWalletClientForBrowser()
     if (!walletClient) throw new Error('Wallet client not available')
 
     const [account] = await walletClient.getAddresses()
     if (!account) throw new Error('No account connected')
 
-    // Call the createGame function on the smart contract with entry fee as payment
+    // Call the createGame function on the smart contract
     const hash = await walletClient.writeContract({
       address: GAME_CONTRACT_ADDRESS,
       abi: GAME_CONTRACT_ABI,
       functionName: 'createGame',
-      args: [entryFee], // Pass entry fee as parameter
+      args: [BigInt(gameId)],
+      account,
+    })
+
+    return hash
+  },
+
+  // Start a game with entry fee (called when creator starts game)
+  async startGame(gameId: number, entryFee: bigint) {
+    const walletClient = createWalletClientForBrowser()
+    if (!walletClient) throw new Error('Wallet client not available')
+
+    const [account] = await walletClient.getAddresses()
+    if (!account) throw new Error('No account connected')
+
+    // Call the startGame function on the smart contract with entry fee as payment
+    const hash = await walletClient.writeContract({
+      address: GAME_CONTRACT_ADDRESS,
+      abi: GAME_CONTRACT_ABI,
+      functionName: 'startGame',
+      args: [BigInt(gameId)],
       value: entryFee, // Send MON as payment
       account,
     })
@@ -68,66 +98,8 @@ export const smartContract = {
     return hash
   },
 
-  // Join an existing game
-  async joinGame(gameId: bigint, role: 0 | 1, entryFee: bigint) {
-    const walletClient = createWalletClientForBrowser()
-    if (!walletClient) throw new Error('Wallet client not available')
-
-    const [account] = await walletClient.getAddresses()
-    if (!account) throw new Error('No account connected')
-
-    const hash = await walletClient.writeContract({
-      address: GAME_CONTRACT_ADDRESS,
-      abi: GAME_CONTRACT_ABI,
-      functionName: 'joinGame',
-      args: [gameId, role],
-      value: entryFee,
-      account,
-    })
-
-    return hash
-  },
-
-  // Commit a move (hashed) to the blockchain
-  async commitMove(gameId: bigint, round: number, moveHash: `0x${string}`) {
-    const walletClient = createWalletClientForBrowser()
-    if (!walletClient) throw new Error('Wallet client not available')
-
-    const [account] = await walletClient.getAddresses()
-    if (!account) throw new Error('No account connected')
-
-    const hash = await walletClient.writeContract({
-      address: GAME_CONTRACT_ADDRESS,
-      abi: GAME_CONTRACT_ABI,
-      functionName: 'commitMove',
-      args: [gameId, round, moveHash],
-      account,
-    })
-
-    return hash
-  },
-
-  // Reveal a move (after commit phase)
-  async revealMove(gameId: bigint, round: number, move: string, nonce: bigint) {
-    const walletClient = createWalletClientForBrowser()
-    if (!walletClient) throw new Error('Wallet client not available')
-
-    const [account] = await walletClient.getAddresses()
-    if (!account) throw new Error('No account connected')
-
-    const hash = await walletClient.writeContract({
-      address: GAME_CONTRACT_ADDRESS,
-      abi: GAME_CONTRACT_ABI,
-      functionName: 'revealMove',
-      args: [gameId, round, move, nonce],
-      account,
-    })
-
-    return hash
-  },
-
-  // Finalize game and distribute rewards
-  async finalizeGame(gameId: bigint) {
+  // Finalize a game with winner addresses
+  async finalizeGame(gameId: number, winners: `0x${string}`[]) {
     const walletClient = createWalletClientForBrowser()
     if (!walletClient) throw new Error('Wallet client not available')
 
@@ -138,27 +110,39 @@ export const smartContract = {
       address: GAME_CONTRACT_ADDRESS,
       abi: GAME_CONTRACT_ABI,
       functionName: 'finalizeGame',
-      args: [gameId],
+      args: [BigInt(gameId), winners],
       account,
     })
 
     return hash
   },
 
-  // Get game state from blockchain
-  async getGameState(gameId: bigint) {
+  // Read game information from contract
+  async getGame(gameId: number) {
+    const publicClient = createPublicClientForBrowser()
+    
     const result = await publicClient.readContract({
       address: GAME_CONTRACT_ADDRESS,
       abi: GAME_CONTRACT_ABI,
-      functionName: 'getGameState',
-      args: [gameId],
-    })
+      functionName: 'getGame',
+      args: [BigInt(gameId)],
+    }) as readonly [string, bigint, bigint, bigint, boolean, boolean]
 
-    return result
+    // Result is a tuple: [creator, vault, entryFee, startBlock, started, finalized]
+    return {
+      creator: result[0] as `0x${string}`,
+      vault: result[1],
+      entryFee: result[2],
+      startBlock: result[3],
+      started: result[4],
+      finalized: result[5],
+    }
   },
 
   // Get minimum entry fee from contract
-  async getMinEntryFee(): Promise<bigint> {
+  async getMinEntryFee() {
+    const publicClient = createPublicClientForBrowser()
+    
     const result = await publicClient.readContract({
       address: GAME_CONTRACT_ADDRESS,
       abi: GAME_CONTRACT_ABI,
@@ -168,32 +152,43 @@ export const smartContract = {
 
     return result as bigint
   },
-}
 
-// Utility functions for move hashing (commit-reveal scheme)
-export const gameUtils = {
-  // Generate a random nonce for move hashing
-  generateNonce(): bigint {
-    return BigInt(Math.floor(Math.random() * 1000000000))
+  // Get cooldown blocks from contract
+  async getCooldownBlocks() {
+    const publicClient = createPublicClientForBrowser()
+    
+    const result = await publicClient.readContract({
+      address: GAME_CONTRACT_ADDRESS,
+      abi: GAME_CONTRACT_ABI,
+      functionName: 'COOLDOWN_BLOCKS',
+      args: [],
+    })
+
+    return result as bigint
   },
 
-  // Hash a move with nonce for commit phase
-  async hashMove(move: string, nonce: bigint): Promise<`0x${string}`> {
-    const encoder = new TextEncoder()
-    const data = encoder.encode(move + nonce.toString())
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-    return `0x${hash}`
+  // Get current block number
+  async getCurrentBlockNumber() {
+    const publicClient = createPublicClientForBrowser()
+    return await publicClient.getBlockNumber()
   },
 
-  // Convert MON amount to wei (18 decimals)
-  parseMonToWei(mon: number): bigint {
-    return BigInt(Math.floor(mon * 1e18))
-  },
+  // Refund a stuck game (finalize with empty winners array)
+  async refundGame(gameId: number) {
+    const walletClient = createWalletClientForBrowser()
+    if (!walletClient) throw new Error('Wallet client not available')
 
-  // Convert wei to MON amount
-  formatWeiToMon(wei: bigint): number {
-    return Number(wei) / 1e18
-  },
+    const [account] = await walletClient.getAddresses()
+    if (!account) throw new Error('No account connected')
+
+    const hash = await walletClient.writeContract({
+      address: GAME_CONTRACT_ADDRESS,
+      abi: GAME_CONTRACT_ABI,
+      functionName: 'finalizeGame',
+      args: [BigInt(gameId), []], // Empty winners array for refund
+      account,
+    })
+
+    return hash
+  }
 } 

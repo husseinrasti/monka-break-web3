@@ -1,6 +1,19 @@
 [
   {
     "type": "function",
+    "name": "COOLDOWN_BLOCKS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MIN_ENTRY_FEE",
     "inputs": [],
     "outputs": [
@@ -184,6 +197,19 @@
   },
   {
     "type": "event",
+    "name": "GameRefunded",
+    "inputs": [
+      {
+        "name": "gameId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "GameStarted",
     "inputs": [
       {
@@ -206,6 +232,11 @@
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "CooldownNotMet",
+    "inputs": []
   },
   {
     "type": "error",
@@ -235,11 +266,6 @@
   {
     "type": "error",
     "name": "InsufficientEntryFee",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NoWinners",
     "inputs": []
   },
   {

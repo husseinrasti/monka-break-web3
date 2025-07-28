@@ -25,6 +25,7 @@ MonkaBreak is a real-time team-based strategy game where players compete as Thie
 * Receiving and locking the entry fee when the game starts
 * Recording the block number at game start for randomness
 * Finalizing the game and distributing the vault to a given list of winners
+* Supporting a refund scenario if the game is incomplete
 
 ### ❌ Not Handled by Contract
 
@@ -57,8 +58,9 @@ MonkaBreak is a real-time team-based strategy game where players compete as Thie
 
   * Can only be called by creator
   * Can only be called once
-  * Splits the vault evenly among provided `winners`
-  * Rejects if no winners or game not started
+  * If `winners.length > 0` → vault is split equally between winners
+  * If `winners.length == 0`, function is only allowed if `block.number > startBlock + COOLDOWN_BLOCKS`
+  * In refund case, vault is returned to creator
 
 ### View Functions
 
@@ -81,6 +83,8 @@ struct Game {
 }
 
 mapping(uint256 => Game) public games;
+
+uint256 public constant COOLDOWN_BLOCKS = 256;
 ```
 
 ---
@@ -90,6 +94,7 @@ mapping(uint256 => Game) public games;
 * `GameCreated(uint256 gameId, address creator)`
 * `GameStarted(uint256 gameId, uint256 vault, uint256 blockNumber)`
 * `GameFinalized(uint256 gameId, address[] winners)`
+* `GameRefunded(uint256 gameId)` (optional)
 
 ---
 
@@ -97,6 +102,7 @@ mapping(uint256 => Game) public games;
 
 * The `entryFee` is not set during game creation, only at start time via payable function
 * Vault is locked on-chain and only distributed after a successful finalize call
+* If the game is not completed (no winners), the creator can call finalize after a cooldown period (default: 256 blocks ≈ 4–5 minutes)
 * The off-chain system (Convex + frontend) must validate stages, player status, and provide winner addresses
 * `gameId` must be unique and generated off-chain (e.g., by frontend)
 

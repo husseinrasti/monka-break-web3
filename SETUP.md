@@ -145,7 +145,7 @@ monka-break-web3/
 
 ### Wallet Connection Issues
 - Ensure MetaMask or compatible wallet is installed
-- Switch to Monad Testnet (Chain ID: 41454)
+- Switch to Monad Testnet (Chain ID: 10143)
 - Get MON tokens for testing
 
 ### Build Errors

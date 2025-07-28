@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Vote, Users } from 'lucide-react'
+import { Id } from '@/../convex/_generated/dataModel'
 
 interface GameVotingProps {
-  roomId: string
+  roomId: Id<'rooms'>
   currentRound: number
   playerRole: 'thief' | 'police'
   playerAddress: string

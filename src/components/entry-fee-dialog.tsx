@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useAccount } from 'wagmi'
-import { useMutation } from 'convex/react'
+import { useAccount, useSwitchChain } from 'wagmi'
+import { useMutation, useQuery } from 'convex/react'
 import { api } from '@/../convex/_generated/api'
 import {
   Dialog,
@@ -15,9 +15,9 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { smartContract, gameUtils } from '@/lib/smart-contract'
+import { smartContract, gameUtils, monadTestnet } from '@/lib/smart-contract'
 import { formatMON } from '@/lib/utils'
-import { Coins, Lock } from 'lucide-react'
+import { Coins, Lock, AlertTriangle } from 'lucide-react'
 import { Id } from '@/../convex/_generated/dataModel'
 
 type EntryFeeDialogProps = {
@@ -33,36 +33,44 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
   roomId,
   onSuccess,
 }) => {
-  const { address } = useAccount()
+  const { address, chain } = useAccount()
+  const { switchChain } = useSwitchChain()
   const startGame = useMutation(api.rooms.startGame)
+  const gameConfig = useQuery(api.gameConfig.getOrCreateGameConfig, {})
 
-  const [entryFee, setEntryFee] = useState('2')
+  const [entryFee, setEntryFee] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [minFee, setMinFee] = useState<number>(2)
+  const [isSwitchingChain, setIsSwitchingChain] = useState(false)
 
-  // Get minimum entry fee from contract
+  // Set default entry fee from server config
   useEffect(() => {
-    const fetchMinFee = async () => {
-      try {
-        const minFeeWei = await smartContract.getMinEntryFee()
-        const minFeeNumber = gameUtils.formatWeiToMon(minFeeWei)
-        setMinFee(minFeeNumber)
-        setEntryFee(minFeeNumber.toString())
-      } catch (error) {
-        console.error('Failed to fetch minimum fee:', error)
-        // Fallback to 2 MON
-        setMinFee(2)
-        setEntryFee('2')
-      }
+    if (gameConfig && !entryFee) {
+      // Fallback to 2 if entryFeeMinimum is undefined (for existing configs)
+      const minFee = gameConfig.entryFeeMinimum || 2
+      setEntryFee(minFee.toString())
     }
+  }, [gameConfig, entryFee])
 
-    if (isOpen) {
-      fetchMinFee()
+  // Check if user is on the correct chain
+  const isCorrectChain = chain?.id === monadTestnet.id
+  const minFee = gameConfig?.entryFeeMinimum || 2
+
+  const handleSwitchChain = async () => {
+    if (!switchChain) return
+    
+    setIsSwitchingChain(true)
+    try {
+      await switchChain({ chainId: monadTestnet.id })
+    } catch (error) {
+      console.error('Failed to switch chain:', error)
+      alert('Failed to switch to Monad Testnet. Please switch manually in your wallet.')
+    } finally {
+      setIsSwitchingChain(false)
     }
-  }, [isOpen])
+  }
 
   const handleStartGame = async () => {
-    if (!address) {
+    if (!address || !gameConfig) {
       alert('Please connect your wallet first')
       return
     }
@@ -73,20 +81,32 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       return
     }
 
+    // Check if user is on the correct chain
+    if (!isCorrectChain) {
+      alert('Please switch to Monad Testnet to start the game')
+      return
+    }
+
     setIsLoading(true)
     try {
+      // Generate a unique game ID for the smart contract
+      const gameId = Math.floor(Math.random() * 1000000) + Date.now()
+      
       // Convert MON to wei
       const entryFeeWei = gameUtils.parseMonToWei(fee)
       
-      // Call smart contract to lock entry fee
-      const txHash = await smartContract.createGameWithFee(entryFeeWei)
+      // First create the game on the smart contract
+      await smartContract.createGame(gameId)
       
-      // Update Convex with entry fee and start game
+      // Then start the game with entry fee
+      await smartContract.startGame(gameId, entryFeeWei)
+      
+      // Update Convex with the game start
       await startGame({
         roomId,
         creatorAddress: address,
         entryFee: fee,
-        transactionHash: txHash,
+        gameId: gameId,
       })
 
       onSuccess()
@@ -119,6 +139,28 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Chain Status */}
+          {!isCorrectChain && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-amber-800 text-sm mb-2">
+                <AlertTriangle className="h-4 w-4" />
+                Wrong Network
+              </div>
+              <p className="text-amber-700 text-sm mb-3">
+                You're connected to the wrong network. Please switch to Monad Testnet to continue.
+              </p>
+              <Button
+                onClick={handleSwitchChain}
+                disabled={isSwitchingChain}
+                size="sm"
+                variant="outline"
+                className="w-full"
+              >
+                {isSwitchingChain ? 'Switching...' : 'Switch to Monad Testnet'}
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="entryFee">Entry Fee (MON)</Label>
             <Input
@@ -129,7 +171,7 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
               value={entryFee}
               onChange={(e) => setEntryFee(e.target.value)}
               placeholder={`Minimum ${minFee} MON`}
-              disabled={isLoading}
+              disabled={isLoading || !isCorrectChain}
             />
             <p className="text-xs text-muted-foreground">
               Minimum: {minFee} MON • Higher fees create larger prize pools
@@ -144,7 +186,7 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
             <p className="text-sm">
               This fee will be locked in the MonkaBreak smart contract at{' '}
               <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                0x8a78...B0D1
+                {process.env.NEXT_PUBLIC_GAME_CONTRACT_ADDRESS?.slice(0, 6)}...{process.env.NEXT_PUBLIC_GAME_CONTRACT_ADDRESS?.slice(-4)}
               </code>
             </p>
           </div>
@@ -160,15 +202,17 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
           </Button>
           <Button
             onClick={handleStartGame}
-            disabled={isLoading || parseFloat(entryFee) < minFee}
+            disabled={isLoading || parseFloat(entryFee) < minFee || !gameConfig || !isCorrectChain}
             className="min-w-[120px]"
           >
             {isLoading ? (
               'Starting...'
+            ) : !isCorrectChain ? (
+              'Switch Network First'
             ) : (
               <>
                 <Lock className="mr-2 h-4 w-4" />
-                Lock {formatMON(parseFloat(entryFee))}
+                Lock {formatMON(parseFloat(entryFee) || 0)}
               </>
             )}
           </Button>

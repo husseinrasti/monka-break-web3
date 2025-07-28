@@ -145,7 +145,7 @@ export default function JoinGamePage() {
                 id="roomCode"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                placeholder="ABC123"
+                placeholder=""
                 maxLength={6}
                 className="text-center text-lg font-mono tracking-wider"
               />

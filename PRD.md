@@ -2,189 +2,143 @@
 
 **Project:** MonkaBreak
 **Component:** App (Frontend + Convex + Multisynq + viem)
-**Goal:** Build the frontend interface and real-time multiplayer logic for MonkaBreak, integrating with the smart contract and enabling a fast, dynamic on-chain gaming experience.
+**Goal:** Build a real-time, team-based crypto strategy game interface powered by Monad smart contracts, using Multisynq and Convex for state management.
 
 ---
 
 ## 1. Overview
 
-MonkaBreak is a strategic on-chain game built on the Monad Testnet. Players join game rooms as either Thieves or Police. Using Multisynq for real-time coordination and viem for wallet interactions, the frontend allows users to create/join rooms, participate in rounds, and finalize games.
-
-Convex is used for off-chain data such as room listings, user nicknames, player states, and round syncing.
+MonkaBreak is a real-time multiplayer crypto game where players join rooms as Thieves or Police. The contract only manages on-chain funds, game start, and reward distribution. All player logic, game stages, team behavior, and decisions are handled off-chain (Convex + frontend).
 
 ---
 
 ## 2. Stack
 
-* **Framework:** Next.js + ShadCN (mobile-first UI)
-* **Wallet Integration:** viem (MetaMask, Phantom, WalletConnect, etc.)
-* **Realtime Layer:** Multisynq
-* **Backend (DB + Logic):** Convex
-* **Blockchain:** Monad Testnet (smart contract already defined)
+* **Frontend Framework:** Next.js + ShadCN + TailwindCSS
+* **Wallets:** viem (MetaMask, Phantom, WalletConnect, etc.)
+* **Realtime Engine:** Multisynq
+* **Backend State & DB:** Convex
+* **Smart Contract:** Deployed on Monad Testnet at `0x8a78cCB5a19aa9098F7400891d23672E1Ed7B0D1`
 
 ---
 
-## 3. Pages / Routes
+## 3. Config (From Convex)
 
-### 3.1 Home (`/`)
-
-* Show two buttons:
-
-  * `Create Game`
-  * `Join Game`
-* Optional: Active game rooms list (from Convex)
-
-### 3.2 Create Game (`/create`)
-
-* Input:
-
-  * Entry fee (min 2 MON)
-  * Choose team (Thief or Police)
-  * Optional nickname
-* On submit:
-
-  * Creates room in Convex
-  * Displays room code to share
-
-### 3.3 Join Game (`/join?room=XXX`)
-
-* Input:
-
-  * Room code
-  * Choose team (if slots available)
-  * Optional nickname
-* On join:
-
-  * Registers player in Convex for this room
-  * Connects to Multisynq room with player info
-
-### 3.4 Game Room (`/game/:roomId`)
-
-* Shows:
-
-  * List of players, nicknames, roles, status (eliminated/active)
-  * Game status (waiting / in progress / finished)
-  * Host control if current user is the room creator
-  * `Start Game` button (visible only to creator)
-
-### 3.5 Active Round (Inside `/game/:roomId`)
-
-* Each round consists of:
-
-  * 20s Team Voting:
-
-    * Thieves: Select individual path (A/B/C or custom name)
-    * Police: Vote collectively (Multisynq synced)
-  * 10s On-chain Commit:
-
-    * Button appears to `Confirm Move`
-    * Fails if not enough players submit (min 2/3 per team)
-  * 5s Cooldown → next round
-* Progress bar or timer for all phases
-* Only one round active at a time (up to 4)
-
-### 3.6 End Game Screen
-
-* Shows winner(s)
-* If current user is host:
-
-  * `Finalize Game` button to trigger reward distribution
-* List of who won + claimable amount
-
----
-
-## 4. Multisynq Usage
-
-* Each game room is a Multisynq room
-* Used for:
-
-  * Broadcasting selected paths during voting
-  * Syncing player state changes (join, eliminate, commit)
-  * Real-time display of police votes
-
----
-
-## 5. Convex Schema (Draft)
+All game logic values are pulled dynamically from server config. Defaults:
 
 ```ts
-// tables: rooms, players, votes
-Room: {
-  id: string,
-  creator: string,
-  entryFee: number,
-  started: boolean,
-  finalized: boolean,
-  requiredMinPlayers: number,
-  createdAt: number
-}
-
-Player: {
-  address: string,
-  nickname: string,
-  role: 'thief' | 'police',
-  roomId: string,
-  eliminated: boolean,
-  moves: string[],
-}
-
-Vote: {
-  roomId: string,
-  stage: number,
-  address: string,
-  choice: string // A/B/C
+{
+  minThieves: 1,
+  minPolice: 1,
+  minPlayersToStart: 2,
+  maxTotalPlayers: 10,
+  entryFeeMinimum: 2,
+  stageCount: 4,
+  pathsPerStage: 3,
+  timings: {
+    voteDuration: 20,
+    commitDuration: 10,
+    cooldown: 5
+  },
+  defaultThiefName: "John",
+  defaultPoliceNames: ["Keone", "Bill", "Mike", "James"],
+  allowUnevenTeams: true
 }
 ```
 
 ---
 
-## 6. Wallet Connection (via viem)
+## 4. Game Flow
 
-* Show modal with common wallets (MetaMask, Phantom, WalletConnect)
-* Must switch to Monad Testnet
-* Show ENS if available
-* After connection, store address in local storage + Convex
+### Create Room
+
+* User selects nickname (optional) and team
+* No entryFee entered
+* Convex stores game room and creator
+
+### Join Room
+
+* User joins with nickname (optional) and chooses team if space allows
+* If no nickname provided:
+
+  * Thieves: "John"
+  * Police: random from list
+
+### Start Game (by creator)
+
+* Button opens modal to input entryFee (≥ entryFeeMinimum)
+* Calls `startGame(gameId)` on contract with msg.value = fee
+* Stores block number and vault amount on-chain
+
+### In-Game Rounds (4 total)
+
+* Managed off-chain (Multisynq + Convex)
+* Game stages:
+
+  * Each round has 3 phases: vote (20s), commit (10s), cooldown (5s)
+  * Thieves pick paths independently (no consensus)
+  * Police must reach consensus on one blocked path
+  * If a thief chooses the blocked path → eliminated
+  * In final stage (4), one path is randomly selected as correct using blockhash logic in contract
+
+### Game End
+
+* After stage 4 (or if all thieves eliminated), creator clicks Finalize
+* Contract function `finalizeGame(gameId, address[] winners)` distributes vault equally among winning addresses
 
 ---
 
-## 7. Game Flow Summary
+## 5. UI Structure
 
-1. User connects wallet
-2. User creates or joins room
-3. Room gets populated until team conditions are satisfied
-4. Host clicks `Start Game`
-5. 4 rounds play with voting + blockchain confirmation
-6. Final round includes randomness to determine winning path
-7. Host finalizes and triggers on-chain reward split
+* `/` → Welcome + Create / Join buttons
+* `/create` → Team & nickname form
+* `/join?room=XXX` → Enter nickname + team
+* `/game/:roomId` →
 
----
-
-## 8. Future Enhancements
-
-* Add sound / animation per round
-* Enable friend invites via shareable room links
-* Leaderboard via Convex
-* Game history / replay
-* Allow name + avatar selection
-* Dynamic gas estimation + UI feedback
+  * Player list, team roles, eliminations
+  * Real-time vote display per stage
+  * Game status tracking
+  * Only creator sees `Start Game` & `Finalize Game` buttons
 
 ---
 
-## 9. UI Theme & Colors
+## 6. Smart Contract Usage
 
-The app should follow a dark-themed, immersive visual style inspired by heists and crypto vaults. Use the following palette:
+* `startGame(gameId)` — sends MON and locks vault
+* `finalizeGame(gameId, winners)` — splits reward
+* `getGame(gameId)` — for vault amount, entryFee, started/finalized state
 
-    Primary Color: #836EF9 (vibrant purple for highlights, CTAs, and selection indicators)
+---
 
-    Secondary Palette:
+## 7. Real-time State
 
-        #200052 (deep purple-black background)
+* All voting, turn sync, and eliminations handled with Multisynq
+* Convex stores current stage, votes, eliminated players, player list, room configs
 
-        #FBFAF9 (off-white text or subtle backgrounds)
+---
 
-        #A0055D (accent color for danger/warnings — used in eliminations or alerts)
+## 8. Design / Theme
 
-        #0E100F (dark grey background elements or borders)
+Use the following color palette for dark-theme futuristic feel:
 
-        #FFFFFF (pure white for text on dark background)
+* **Primary:** `#836EF9`
+* **Secondary:** `#200052`, `#FBFAF9`, `#A0055D`, `#0E100F`, `#FFFFFF`
+* UI components should reflect heist + cyber themes
 
-These colors should be consistently applied across all components (buttons, modals, timers, etc.) to maintain a coherent and distinctive aesthetic.
+---
+
+## 9. Future Extensions
+
+* Leaderboards via Convex
+* Replay viewer
+* NFTs for winners
+* Daily/weekly tournaments with variable config
+* Admin-only room modifiers (stage count, reward split types)
+
+---
+
+## 10. Notes
+
+* Entry fee is only processed on-chain at `startGame()`
+* All in-game logic is off-chain and enforced by frontend/backend logic
+* Contract is designed to be minimal and focused only on prize safety

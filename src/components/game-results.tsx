@@ -1,15 +1,19 @@
 'use client'
 
-import React, { useState } from 'react'
-import { useQuery } from 'convex/react'
+import React, { useState, useEffect } from 'react'
+import { useQuery, useMutation } from 'convex/react'
+import { useAccount } from 'wagmi'
 import { api } from '@/../convex/_generated/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Trophy, Crown, Coins, Users } from 'lucide-react'
+import { smartContract, gameUtils } from '@/lib/smart-contract'
+import { formatMON } from '@/lib/utils'
+import { Id } from '@/../convex/_generated/dataModel'
 
 interface GameResultsProps {
-  roomId: string
+  roomId: Id<'rooms'>
   isCreator: boolean
   winningPath?: string
 }
@@ -19,30 +23,81 @@ export const GameResults: React.FC<GameResultsProps> = ({
   isCreator,
   winningPath 
 }) => {
+  const { address } = useAccount()
   const [isFinalizing, setIsFinalizing] = useState(false)
+  const [contractData, setContractData] = useState<{
+    vault: number
+    entryFee: number
+    finalized: boolean
+  } | null>(null)
 
   const roomPlayers = useQuery(api.rooms.getRoomPlayers, { roomId })
   const roomData = useQuery(api.rooms.getRoomByCode, 
-    roomPlayers?.[0] ? { roomCode: 'dummy' } : 'skip'
-  ) // We need a better way to get room data here
+    roomPlayers?.[0] ? { roomCode: roomPlayers[0].roomId } : 'skip'
+  )
+  const finalizeGame = useMutation(api.rooms.finalizeGame)
 
-  // Mock data for now - in real implementation, this would come from smart contract
+  // Fetch contract data
+  useEffect(() => {
+    const fetchContractData = async () => {
+      if (!roomData?.gameId) return
+
+      try {
+        const gameInfo = await smartContract.getGame(roomData.gameId)
+        setContractData({
+          vault: gameUtils.formatWeiToMon(gameInfo.vault),
+          entryFee: gameUtils.formatWeiToMon(gameInfo.entryFee),
+          finalized: gameInfo.finalized,
+        })
+      } catch (error) {
+        console.error('Failed to fetch contract data:', error)
+      }
+    }
+
+    fetchContractData()
+  }, [roomData?.gameId])
+
+  // Determine winners and game results
   const gameResults = {
     winningTeam: winningPath ? 'thieves' : 'police',
     winners: roomPlayers?.filter(p => 
       winningPath ? p.role === 'thief' : p.role === 'police'
     ).filter(p => !p.eliminated) || [],
-    totalPrize: roomPlayers ? roomPlayers.length * 2 : 0, // Assuming 2 MON entry fee
+    totalPrize: contractData?.vault || 0,
+    isFinalized: contractData?.finalized || roomData?.finalized || false,
   }
 
   const handleFinalizeGame = async () => {
+    if (!address || !roomData?.gameId) {
+      alert('Missing required data to finalize game')
+      return
+    }
+
     setIsFinalizing(true)
     try {
-      // This would call the smart contract to distribute rewards
-      alert('Game finalized! Rewards have been distributed.')
+      // Get winner addresses
+      const winnerAddresses = gameResults.winners.map(w => w.address as `0x${string}`)
+      
+      if (winnerAddresses.length === 0) {
+        alert('No winners to distribute rewards to')
+        return
+      }
+
+      // Call smart contract to finalize and distribute rewards
+      await smartContract.finalizeGame(roomData.gameId, winnerAddresses)
+      
+      // Update Convex state
+      await finalizeGame({
+        roomId,
+        creatorAddress: address,
+        winners: winnerAddresses,
+        vault: gameResults.totalPrize,
+      })
+
+      alert('Game finalized! Rewards have been distributed to winners.')
     } catch (error) {
       console.error('Failed to finalize game:', error)
-      alert('Failed to finalize game. Please try again.')
+      alert(`Failed to finalize game: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsFinalizing(false)
     }
@@ -100,7 +155,10 @@ export const GameResults: React.FC<GameResultsProps> = ({
                   </div>
                 </div>
                 <Badge variant="secondary" className="text-amber-600">
-                  {(gameResults.totalPrize / gameResults.winners.length).toFixed(2)} MON
+                  {gameResults.winners.length > 0 
+                    ? formatMON(gameResults.totalPrize / gameResults.winners.length)
+                    : '0 MON'
+                  }
                 </Badge>
               </div>
             ))}
@@ -113,27 +171,49 @@ export const GameResults: React.FC<GameResultsProps> = ({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Coins className="h-5 w-5 text-amber-500" />
-            Prize Pool
+            Smart Contract Vault
           </CardTitle>
+          <CardDescription>
+            Prize pool locked in the smart contract
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 text-center">
             <div className="space-y-2">
               <div className="text-2xl font-bold text-primary">
-                {gameResults.totalPrize} MON
+                {formatMON(gameResults.totalPrize)}
               </div>
-              <div className="text-sm text-muted-foreground">Total Prize</div>
+              <div className="text-sm text-muted-foreground">Total Vault</div>
             </div>
             <div className="space-y-2">
               <div className="text-2xl font-bold text-accent">
                 {gameResults.winners.length > 0 
-                  ? (gameResults.totalPrize / gameResults.winners.length).toFixed(2)
-                  : '0'
-                } MON
+                  ? formatMON(gameResults.totalPrize / gameResults.winners.length)
+                  : '0 MON'
+                }
               </div>
               <div className="text-sm text-muted-foreground">Per Winner</div>
             </div>
           </div>
+          
+          {contractData && (
+            <div className="mt-4 pt-4 border-t text-sm text-muted-foreground">
+              <div className="flex justify-between">
+                <span>Entry Fee:</span>
+                <span>{formatMON(contractData.entryFee)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Players:</span>
+                <span>{roomPlayers?.length || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Status:</span>
+                <span className={gameResults.isFinalized ? 'text-green-600' : 'text-yellow-600'}>
+                  {gameResults.isFinalized ? 'Finalized' : 'Not Finalized'}
+                </span>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -211,29 +291,39 @@ export const GameResults: React.FC<GameResultsProps> = ({
       </Card>
 
       {/* Finalize Game (Creator Only) */}
-      {isCreator && (
+      {isCreator && !gameResults.isFinalized && (
         <Card>
           <CardHeader>
             <CardTitle>Finalize Game</CardTitle>
             <CardDescription>
-              Trigger the smart contract to distribute rewards to winners
+              Trigger the smart contract to distribute {formatMON(gameResults.totalPrize)} to {gameResults.winners.length} winners
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button
               onClick={handleFinalizeGame}
-              disabled={isFinalizing}
+              disabled={isFinalizing || gameResults.winners.length === 0}
               className="w-full"
               size="lg"
             >
               {isFinalizing ? (
                 'Finalizing Game...'
               ) : (
-                'Finalize & Distribute Rewards'
+                `Finalize & Distribute ${formatMON(gameResults.totalPrize)}`
               )}
             </Button>
             <div className="text-xs text-muted-foreground text-center mt-2">
-              This will call the smart contract to distribute {gameResults.totalPrize} MON to {gameResults.winners.length} winners
+              This will call the smart contract to distribute rewards
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {gameResults.isFinalized && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="text-center py-6">
+            <div className="text-green-600 font-medium">
+              ✅ Game has been finalized and rewards distributed!
             </div>
           </CardContent>
         </Card>

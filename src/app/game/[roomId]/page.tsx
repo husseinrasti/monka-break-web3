@@ -11,10 +11,11 @@ import { Progress } from '@/components/ui/progress'
 import { WalletConnect } from '@/components/wallet-connect'
 import { EntryFeeDialog } from '@/components/entry-fee-dialog'
 import { formatAddress, formatMON, getRoleColor, getRoleIcon } from '@/lib/utils'
-import { ArrowLeft, Users, Clock, Play, Target, Coins } from 'lucide-react'
+import { ArrowLeft, Users, Clock, Play, Target, Coins, AlertTriangle } from 'lucide-react'
 import { GameVoting } from '@/components/game-voting'
 import { GameCommit } from '@/components/game-commit'
 import { GameResults } from '@/components/game-results'
+import { RefundDialog } from '@/components/refund-dialog'
 
 export default function GameRoomPage() {
   const params = useParams()
@@ -36,6 +37,7 @@ export default function GameRoomPage() {
 
   const [timeRemaining, setTimeRemaining] = useState(0)
   const [isEntryFeeDialogOpen, setIsEntryFeeDialogOpen] = useState(false)
+  const [isRefundDialogOpen, setIsRefundDialogOpen] = useState(false)
 
   // Calculate time remaining for current phase
   useEffect(() => {
@@ -63,6 +65,15 @@ export default function GameRoomPage() {
   }
 
   const handleGameStarted = () => {
+    // The dialog will close automatically, and the game should refresh
+    // No additional action needed as the queries will update automatically
+  }
+
+  const handleRefundDialogClose = () => {
+    setIsRefundDialogOpen(false)
+  }
+
+  const handleRefundSuccess = () => {
     // The dialog will close automatically, and the game should refresh
     // No additional action needed as the queries will update automatically
   }
@@ -203,7 +214,7 @@ export default function GameRoomPage() {
                     <span>Time Remaining:</span>
                     <span className="font-mono">{Math.ceil(timeRemaining / 1000)}s</span>
                   </div>
-                  <Progress value={(timeRemaining / (roomData.gamePhase === 'voting' ? 20000 : 10000)) * 100} />
+                  <Progress value={(timeRemaining / (roomData.gamePhase === 'voting' ? (gameConfig?.timings.voteDuration || 20) * 1000 : (gameConfig?.timings.commitDuration || 10) * 1000)) * 100} />
                 </div>
               )}
 
@@ -220,6 +231,18 @@ export default function GameRoomPage() {
                       Start Game
                     </>
                   )}
+                </Button>
+              )}
+
+              {roomData.started && !roomData.finalized && roomData.creator === address && roomData.gameId && (
+                <Button 
+                  onClick={() => setIsRefundDialogOpen(true)}
+                  variant="outline"
+                  className="w-full"
+                  size="lg"
+                >
+                  <AlertTriangle className="mr-2 h-4 w-4" />
+                  Refund Game
                 </Button>
               )}
             </CardContent>
@@ -348,6 +371,17 @@ export default function GameRoomPage() {
           onClose={handleEntryFeeDialogClose}
           onSuccess={handleGameStarted}
           roomId={roomData._id}
+        />
+      )}
+
+      {roomData?._id && roomData.gameId && (
+        <RefundDialog
+          isOpen={isRefundDialogOpen}
+          onClose={handleRefundDialogClose}
+          onSuccess={handleRefundSuccess}
+          roomId={roomData._id}
+          gameId={roomData.gameId}
+          creatorAddress={roomData.creator}
         />
       )}
     </div>

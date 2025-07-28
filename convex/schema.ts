@@ -7,10 +7,23 @@ export default defineSchema({
     minPolice: v.number(),
     minPlayersToStart: v.number(),
     maxTotalPlayers: v.number(),
+    // New fields are optional to support migration from existing data  
+    entryFeeMinimum: v.optional(v.number()),
+    stageCount: v.optional(v.number()),
+    pathsPerStage: v.optional(v.number()),
+    timings: v.optional(v.object({
+      voteDuration: v.number(),
+      commitDuration: v.number(),
+      cooldown: v.number()
+    })),
+    defaultThiefNames: v.optional(v.array(v.string())),
+    defaultPoliceNames: v.optional(v.array(v.string())),
+    allowUnevenTeams: v.optional(v.boolean())
   }),
 
   rooms: defineTable({
     creator: v.string(), // wallet address
+    gameId: v.optional(v.number()), // smart contract game ID
     entryFee: v.number(), // in MON
     started: v.boolean(),
     finalized: v.boolean(),
@@ -27,7 +40,11 @@ export default defineSchema({
       v.literal("finished")
     ),
     phaseEndTime: v.optional(v.number()),
-  }).index("by_room_code", ["roomCode"]),
+    // Smart contract integration fields
+    vault: v.optional(v.number()), // vault amount from contract
+    winners: v.optional(v.array(v.string())), // winner addresses
+  }).index("by_room_code", ["roomCode"])
+    .index("by_game_id", ["gameId"]),
 
   players: defineTable({
     address: v.string(), // wallet address

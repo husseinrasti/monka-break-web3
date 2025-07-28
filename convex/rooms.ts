@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 
 // Generate a random 6-character room code
 const generateRoomCode = (): string => {
@@ -38,26 +39,38 @@ export const createRoom = mutation({
         .first();
     }
 
-    // Get game config for min players
+    // Get actual game config
     const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
     
     // Create room without entry fee (will be set when starting game)
-    const roomId = await ctx.db.insert("rooms", {
+    const roomId: Id<"rooms"> = await ctx.db.insert("rooms", {
       creator: args.creator,
       entryFee: 0, // Will be set when starting the game
       started: false,
       finalized: false,
       requiredMinPlayers: config.minPlayersToStart,
       currentRound: 0,
-      maxRounds: 4,
+      maxRounds: config.stageCount,
       roomCode,
       gamePhase: "waiting" as const,
     });
 
+    // Use default nickname if none provided
+    let playerNickname = args.nickname;
+    if (!playerNickname) {
+      if (args.role === "thief") {
+        const randomIndex = Math.floor(Math.random() * config.defaultThiefNames.length);
+        playerNickname = config.defaultThiefNames[randomIndex];
+      } else {
+        const randomIndex = Math.floor(Math.random() * config.defaultPoliceNames.length);
+        playerNickname = config.defaultPoliceNames[randomIndex];
+      }
+    }
+
     // Add creator as first player
     await ctx.db.insert("players", {
       address: args.creator,
-      nickname: args.nickname,
+      nickname: playerNickname,
       role: args.role,
       roomId,
       eliminated: false,
@@ -101,11 +114,35 @@ export const joinRoom = mutation({
       .first();
 
     if (existingPlayer) {
-      throw new Error("Already in this room");
+      // If player is already in room, update their info if game hasn't started
+      if (!room.started) {
+        // Get config for default nicknames
+        const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+        
+        // Use default nickname if none provided
+        let playerNickname = args.nickname;
+        if (!playerNickname) {
+          if (args.role === "thief") {
+            const randomIndex = Math.floor(Math.random() * config.defaultThiefNames.length);
+            playerNickname = config.defaultThiefNames[randomIndex];
+          } else {
+            const randomIndex = Math.floor(Math.random() * config.defaultPoliceNames.length);
+            playerNickname = config.defaultPoliceNames[randomIndex];
+          }
+        }
+
+        // Update existing player's info
+        await ctx.db.patch(existingPlayer._id, {
+          nickname: playerNickname,
+          role: args.role,
+        });
+      }
+      // Return room ID (allow rejoining)
+      return room._id;
     }
 
-    // Get game config for player limits
-    const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+    // Get actual game config
+    const joinConfig = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
     
     // Check team balance and total player limit
     const players = await ctx.db
@@ -114,21 +151,33 @@ export const joinRoom = mutation({
       .collect();
 
     // Check total players limit
-    if (players.length >= config.maxTotalPlayers) {
+    if (players.length >= joinConfig.maxTotalPlayers) {
       throw new Error("Room is full");
     }
 
     // Check team balance (max half of total players per team)
-    const maxPerTeam = Math.floor(config.maxTotalPlayers / 2);
+    const maxPerTeam = Math.floor(joinConfig.maxTotalPlayers / 2);
     const roleCount = players.filter(p => p.role === args.role).length;
     if (roleCount >= maxPerTeam) {
       throw new Error(`Team ${args.role} is full`);
     }
 
+    // Use default nickname if none provided
+    let playerNickname = args.nickname;
+    if (!playerNickname) {
+      if (args.role === "thief") {
+        const randomIndex = Math.floor(Math.random() * joinConfig.defaultThiefNames.length);
+        playerNickname = joinConfig.defaultThiefNames[randomIndex];
+      } else {
+        const randomIndex = Math.floor(Math.random() * joinConfig.defaultPoliceNames.length);
+        playerNickname = joinConfig.defaultPoliceNames[randomIndex];
+      }
+    }
+
     // Add player to room
     await ctx.db.insert("players", {
       address: args.address,
-      nickname: args.nickname,
+      nickname: playerNickname,
       role: args.role,
       roomId: room._id,
       eliminated: false,
@@ -148,6 +197,7 @@ export const getRoomByCode = query({
       _id: v.id("rooms"),
       _creationTime: v.number(),
       creator: v.string(),
+      gameId: v.optional(v.number()),
       entryFee: v.number(),
       started: v.boolean(),
       finalized: v.boolean(),
@@ -164,6 +214,8 @@ export const getRoomByCode = query({
       ),
       phaseEndTime: v.optional(v.number()),
       winningPath: v.optional(v.string()),
+      vault: v.optional(v.number()),
+      winners: v.optional(v.array(v.string())),
     })
   ),
   handler: async (ctx, args) => {
@@ -200,7 +252,7 @@ export const startGame = mutation({
     roomId: v.id("rooms"), 
     creatorAddress: v.string(),
     entryFee: v.number(),
-    transactionHash: v.optional(v.string()),
+    gameId: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -217,12 +269,12 @@ export const startGame = mutation({
       throw new Error("Game already started");
     }
 
-    if (args.entryFee < 2) {
-      throw new Error("Minimum entry fee is 2 MON");
-    }
-
-    // Get game config for minimum players
+    // Get actual game config for validation
     const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+    
+    if (args.entryFee < config.entryFeeMinimum) {
+      throw new Error(`Minimum entry fee is ${config.entryFeeMinimum} MON`);
+    }
     
     // Check minimum players
     const players = await ctx.db
@@ -241,13 +293,91 @@ export const startGame = mutation({
       throw new Error(`Need at least ${config.minPlayersToStart} players to start`);
     }
 
-    // Start the game with entry fee
+    // Start the game with entry fee and smart contract integration
     await ctx.db.patch(args.roomId, {
       started: true,
+      gameId: args.gameId,
       entryFee: args.entryFee,
       gamePhase: "voting" as const,
-      phaseEndTime: Date.now() + 20000, // 20 seconds for voting
+      phaseEndTime: Date.now() + (config.timings.voteDuration * 1000), // Use config timing
       currentRound: 1,
+      maxRounds: config.stageCount, // Use config stage count
+    });
+
+    return null;
+  },
+});
+
+export const finalizeGame = mutation({
+  args: {
+    roomId: v.id("rooms"),
+    creatorAddress: v.string(),
+    winners: v.array(v.string()),
+    vault: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const room = await ctx.db.get(args.roomId);
+    if (!room) {
+      throw new Error("Room not found");
+    }
+
+    if (room.creator !== args.creatorAddress) {
+      throw new Error("Only room creator can finalize the game");
+    }
+
+    if (!room.started) {
+      throw new Error("Game not started");
+    }
+
+    if (room.finalized) {
+      throw new Error("Game already finalized");
+    }
+
+    if (room.gamePhase !== "finished") {
+      throw new Error("Game not finished yet");
+    }
+
+    // Update room with finalization data
+    await ctx.db.patch(args.roomId, {
+      finalized: true,
+      winners: args.winners,
+      vault: args.vault,
+    });
+
+    return null;
+  },
+});
+
+export const refundGame = mutation({
+  args: {
+    roomId: v.id("rooms"),
+    creatorAddress: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const room = await ctx.db.get(args.roomId);
+    if (!room) {
+      throw new Error("Room not found");
+    }
+
+    if (room.creator !== args.creatorAddress) {
+      throw new Error("Only room creator can refund the game");
+    }
+
+    if (!room.started) {
+      throw new Error("Game must be started to refund");
+    }
+
+    if (room.finalized) {
+      throw new Error("Game already finalized");
+    }
+
+    // Update room as refunded
+    await ctx.db.patch(args.roomId, {
+      finalized: true,
+      winners: [], // Empty winners array for refund
+      gamePhase: "finished",
     });
 
     return null;

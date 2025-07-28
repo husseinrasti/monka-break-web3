@@ -1,6 +1,6 @@
 {
   "contractName": "MonkaBreak",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "compiler": {
     "solidity": "0.8.28",
     "optimizer": true
@@ -9,18 +9,35 @@
     "monad_testnet": {
       "chainId": 10143,
       "rpcUrl": "https://testnet-rpc.monad.xyz",
-      "contractAddress": "0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC",
-      "deploymentBlock": 28137526,
-      "deploymentTx": "0x52f8e99df40db8eacfa3846ecae6ebe6328ad920401114847bd18837949354d3",
-      "explorerUrl": "https://testnet-explorer.monad.xyz/address/0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC",
-      "verified": true
+      "contractAddress": "0x7DdD1840B0130e7D0357f130Db52Ad1c6A833dbd",
+      "deploymentBlock": 28221815,
+      "deploymentTx": "0x0fa2c4c2a4907670c3a32291c0e252de414b46f594c86ee86cf124d217955114",
+      "explorerUrl": "https://testnet-explorer.monad.xyz/address/0x7DdD1840B0130e7D0357f130Db52Ad1c6A833dbd",
+      "verified": true,
+      "deploymentCost": "0.06382950000127659 ETH",
+      "gasUsed": 1276590
     }
   },
   "constants": {
-    "MIN_ENTRY_FEE": "1000000000000000000",
-    "MIN_ENTRY_FEE_HUMAN": "1 MON"
+    "MIN_ENTRY_FEE": "2000000000000000000",
+    "MIN_ENTRY_FEE_HUMAN": "2 MON",
+    "COOLDOWN_BLOCKS": "256",
+    "COOLDOWN_BLOCKS_HUMAN": "256 blocks (≈ 4-5 minutes)"
   },
   "abi": [
+    {
+      "type": "function",
+      "name": "COOLDOWN_BLOCKS",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
     {
       "type": "function",
       "name": "MIN_ENTRY_FEE",
@@ -206,6 +223,19 @@
     },
     {
       "type": "event",
+      "name": "GameRefunded",
+      "inputs": [
+        {
+          "name": "gameId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "GameStarted",
       "inputs": [
         {
@@ -228,6 +258,11 @@
         }
       ],
       "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "CooldownNotMet",
+      "inputs": []
     },
     {
       "type": "error",
@@ -261,11 +296,6 @@
     },
     {
       "type": "error",
-      "name": "NoWinners",
-      "inputs": []
-    },
-    {
-      "type": "error",
       "name": "OnlyCreatorCanCall",
       "inputs": []
     },
@@ -277,23 +307,32 @@
   ],
   "usageExamples": {
     "web3js": {
-      "initialization": "const contract = new web3.eth.Contract(abi, '0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC');",
+      "initialization": "const contract = new web3.eth.Contract(abi, '0x7DdD1840B0130e7D0357f130Db52Ad1c6A833dbd');",
       "createGame": "await contract.methods.createGame(gameId).send({from: userAddress});",
-      "startGame": "await contract.methods.startGame(gameId).send({from: creator, value: web3.utils.toWei('1', 'ether')});",
+      "startGame": "await contract.methods.startGame(gameId).send({from: creator, value: web3.utils.toWei('2', 'ether')});",
       "finalizeGame": "await contract.methods.finalizeGame(gameId, winnersArray).send({from: creator});",
+      "finalizeGameRefund": "await contract.methods.finalizeGame(gameId, []).send({from: creator});",
       "getGame": "const gameData = await contract.methods.getGame(gameId).call();"
     },
     "ethersjs": {
-      "initialization": "const contract = new ethers.Contract('0x96932903fCa2C116fFD8DEa7c5b8e87010Cfd8CC', abi, signer);",
+      "initialization": "const contract = new ethers.Contract('0x7DdD1840B0130e7D0357f130Db52Ad1c6A833dbd', abi, signer);",
       "createGame": "await contract.createGame(gameId);",
-      "startGame": "await contract.startGame(gameId, {value: ethers.utils.parseEther('1')});",
+      "startGame": "await contract.startGame(gameId, {value: ethers.utils.parseEther('2')});",
       "finalizeGame": "await contract.finalizeGame(gameId, winnersArray);",
+      "finalizeGameRefund": "await contract.finalizeGame(gameId, []);",
       "getGame": "const gameData = await contract.getGame(gameId);"
     }
   },
   "eventFilters": {
     "GameCreated": "contract.filters.GameCreated(gameId, null)",
     "GameStarted": "contract.filters.GameStarted(gameId)",
-    "GameFinalized": "contract.filters.GameFinalized(gameId)"
+    "GameFinalized": "contract.filters.GameFinalized(gameId)",
+    "GameRefunded": "contract.filters.GameRefunded(gameId)"
+  },
+  "features": {
+    "cooldownRefund": "Supports refunding vault to creator after 256 blocks if no winners",
+    "equalDistribution": "Vault split equally among winners",
+    "accessControl": "Only creators can start/finalize their games",
+    "minimalOnChain": "Only handles funding, starting, and reward distribution"
   }
 } 

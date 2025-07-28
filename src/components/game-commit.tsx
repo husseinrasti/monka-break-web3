@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CheckCircle, Clock, AlertTriangle } from 'lucide-react'
+import { Id } from '@/../convex/_generated/dataModel'
 
 interface GameCommitProps {
-  roomId: string
+  roomId: Id<'rooms'>
   currentRound: number
   playerAddress: string
 }

@@ -7,8 +7,11 @@ pragma solidity ^0.8.19;
  * @dev Real-time team-based strategy game where players compete as Thieves and Police
  */
 contract MonkaBreak {
-    /// @notice Minimum entry fee required to start a game (1 MON)
-    uint256 public constant MIN_ENTRY_FEE = 1 ether;
+    /// @notice Minimum entry fee required to start a game (2 MON)
+    uint256 public constant MIN_ENTRY_FEE = 2 ether;
+    
+    /// @notice Cooldown period in blocks before refund is allowed (256 blocks ≈ 4-5 minutes)
+    uint256 public constant COOLDOWN_BLOCKS = 256;
 
     /// @notice Represents a game room
     struct Game {
@@ -27,6 +30,7 @@ contract MonkaBreak {
     event GameCreated(uint256 indexed gameId, address indexed creator);
     event GameStarted(uint256 indexed gameId, uint256 vault, uint256 blockNumber);
     event GameFinalized(uint256 indexed gameId, address[] winners);
+    event GameRefunded(uint256 indexed gameId);
 
     // Custom errors
     error GameAlreadyExists();
@@ -36,7 +40,7 @@ contract MonkaBreak {
     error GameAlreadyFinalized();
     error OnlyCreatorCanCall();
     error InsufficientEntryFee();
-    error NoWinners();
+    error CooldownNotMet();
     error TransferFailed();
 
     modifier gameExists(uint256 gameId) {
@@ -112,6 +116,7 @@ contract MonkaBreak {
      * @param gameId The ID of the game to finalize
      * @param winners Array of winner addresses to receive equal shares of the vault
      * @dev Can only be called by creator and only once per game
+     * @dev If winners.length == 0, only allows finalize after cooldown period and refunds to creator
      */
     function finalizeGame(uint256 gameId, address[] calldata winners) 
         external 
@@ -120,22 +125,34 @@ contract MonkaBreak {
         gameNotFinalized(gameId) 
         onlyCreator(gameId) 
     {
-        if (winners.length == 0) revert NoWinners();
-        
         Game storage game = games[gameId];
         game.finalized = true;
         
-        uint256 prizePerWinner = game.vault / winners.length;
-        
-        for (uint256 i = 0; i < winners.length; i++) {
-            (bool success, ) = winners[i].call{value: prizePerWinner}("");
+        if (winners.length > 0) {
+            // Distribute vault equally among winners
+            uint256 prizePerWinner = game.vault / winners.length;
+            
+            for (uint256 i = 0; i < winners.length; i++) {
+                (bool success, ) = winners[i].call{value: prizePerWinner}("");
+                if (!success) revert TransferFailed();
+            }
+            
+            emit GameFinalized(gameId, winners);
+        } else {
+            // No winners - check cooldown period and refund to creator
+            if (block.number <= game.startBlock + COOLDOWN_BLOCKS) {
+                revert CooldownNotMet();
+            }
+            
+            // Refund entire vault to creator
+            (bool success, ) = game.creator.call{value: game.vault}("");
             if (!success) revert TransferFailed();
+            
+            emit GameRefunded(gameId);
         }
         
-        // Clear the vault after distribution
+        // Clear the vault after distribution/refund
         game.vault = 0;
-        
-        emit GameFinalized(gameId, winners);
     }
 
     /**
