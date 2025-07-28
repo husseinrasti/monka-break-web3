@@ -240,6 +240,7 @@ export default function GameRoomPage() {
                   variant="outline"
                   className="w-full"
                   size="lg"
+                  title="Refund stuck game (only available after cooldown period)"
                 >
                   <AlertTriangle className="mr-2 h-4 w-4" />
                   Refund Game

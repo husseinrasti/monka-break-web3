@@ -56,7 +56,22 @@ export const RefundDialog: React.FC<RefundDialogProps> = ({
         setError(null)
         
         // Get game data from contract
-        const gameData = await smartContract.getGame(gameId)
+        let gameData
+        try {
+          gameData = await smartContract.getGame(gameId)
+        } catch (error) {
+          // Game doesn't exist on blockchain yet
+          setEligibility({
+            isEligible: false,
+            reason: 'Game not found on blockchain. It may not have been created yet.',
+            cooldownBlocks: 256, // Default value
+            currentBlock: 0,
+            startBlock: 0,
+            vault: BigInt(0),
+          })
+          return
+        }
+
         const cooldownBlocks = await smartContract.getCooldownBlocks()
         const currentBlock = await smartContract.getCurrentBlockNumber()
 
@@ -124,10 +139,14 @@ export const RefundDialog: React.FC<RefundDialogProps> = ({
           vault: gameData.vault,
         })
 
-      } catch (err) {
-        console.error('Error checking refund eligibility:', err)
-        setError(err instanceof Error ? err.message : 'Failed to check refund eligibility')
-      }
+              } catch (err) {
+          console.error('Error checking refund eligibility:', err)
+          if (err instanceof Error && err.message.includes('GameNotFound')) {
+            setError('Game not found on blockchain. The game may not have been properly created or started.')
+          } else {
+            setError(err instanceof Error ? err.message : 'Failed to check refund eligibility')
+          }
+        }
     }
 
     checkEligibility()

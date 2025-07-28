@@ -18,7 +18,7 @@ MonkaBreak is a real-time multiplayer crypto game where players join rooms as Th
 * **Wallets:** viem (MetaMask, Phantom, WalletConnect, etc.)
 * **Realtime Engine:** Multisynq
 * **Backend State & DB:** Convex
-* **Smart Contract:** Deployed on Monad Testnet at `0x8a78cCB5a19aa9098F7400891d23672E1Ed7B0D1`
+* **Smart Contract:** Deployed on Monad Testnet at `0x7DdD1840B0130e7D0357f130Db52Ad1c6A833dbd`
 
 ---
 
