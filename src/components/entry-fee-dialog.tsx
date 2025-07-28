@@ -95,13 +95,51 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       // Convert MON to wei
       const entryFeeWei = gameUtils.parseMonToWei(fee)
       
+      console.log('Starting game with:', { gameId, entryFeeWei, fee })
+      
       // First create the game on the smart contract
-      await smartContract.createGame(gameId)
+      console.log('Creating game on blockchain...')
+      const createHash = await smartContract.createGame(gameId)
+      console.log('Game created with hash:', createHash)
+      
+      // Wait a moment for the transaction to be mined
+      await new Promise(resolve => setTimeout(resolve, 2000))
       
       // Then start the game with entry fee
-      await smartContract.startGame(gameId, entryFeeWei)
+      console.log('Starting game on blockchain...')
+      const startHash = await smartContract.startGame(gameId, entryFeeWei)
+      console.log('Game started with hash:', startHash)
+      
+      // Wait for the start transaction to be mined
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      
+      // Verify the game was started correctly on-chain
+      console.log('Verifying game state on blockchain...')
+      const gameData = await smartContract.getGame(gameId)
+      console.log('Game data from blockchain:', gameData)
+      
+      // Critical validation: Check if startBlock is set correctly
+      if (gameData.startBlock === BigInt(0)) {
+        throw new Error('CRITICAL: Game startBlock is 0. The startGame transaction may have failed or been reverted.')
+      }
+      
+      if (!gameData.started) {
+        throw new Error('CRITICAL: Game is not marked as started on blockchain.')
+      }
+      
+      if (gameData.entryFee === BigInt(0)) {
+        throw new Error('CRITICAL: Game entry fee is 0 on blockchain.')
+      }
+      
+      console.log('✅ Game successfully started on blockchain with:', {
+        startBlock: Number(gameData.startBlock),
+        started: gameData.started,
+        entryFee: gameUtils.formatWeiToMon(gameData.entryFee),
+        vault: gameUtils.formatWeiToMon(gameData.vault)
+      })
       
       // Update Convex with the game start
+      console.log('Updating Convex with game start...')
       await startGame({
         roomId,
         creatorAddress: address,
@@ -113,7 +151,24 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       onClose()
     } catch (error) {
       console.error('Failed to start game:', error)
-      alert(`Failed to start game: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      
+      // Provide specific error messages for different failure scenarios
+      let errorMessage = 'Failed to start game'
+      if (error instanceof Error) {
+        if (error.message.includes('CRITICAL:')) {
+          errorMessage = error.message
+        } else if (error.message.includes('insufficient funds')) {
+          errorMessage = 'Insufficient MON balance. Please ensure you have enough MON to pay the entry fee.'
+        } else if (error.message.includes('user rejected')) {
+          errorMessage = 'Transaction was rejected by user. Please try again.'
+        } else if (error.message.includes('network')) {
+          errorMessage = 'Network error. Please check your connection and try again.'
+        } else {
+          errorMessage = `Failed to start game: ${error.message}`
+        }
+      }
+      
+      alert(errorMessage)
     } finally {
       setIsLoading(false)
     }

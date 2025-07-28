@@ -190,5 +190,71 @@ export const smartContract = {
     })
 
     return hash
+  },
+
+  // Check if a game was properly started (for debugging)
+  async checkGameStartStatus(gameId: number) {
+    try {
+      const gameData = await this.getGame(gameId)
+      const currentBlock = await this.getCurrentBlockNumber()
+      const cooldownBlocks = await this.getCooldownBlocks()
+      
+      return {
+        gameId,
+        exists: true,
+        started: gameData.started,
+        startBlock: Number(gameData.startBlock),
+        currentBlock: Number(currentBlock),
+        entryFee: gameUtils.formatWeiToMon(gameData.entryFee),
+        vault: gameUtils.formatWeiToMon(gameData.vault),
+        finalized: gameData.finalized,
+        creator: gameData.creator,
+        isProperlyStarted: gameData.started && gameData.startBlock > BigInt(0),
+        canRefund: gameData.started && !gameData.finalized && 
+                   Number(currentBlock) > Number(gameData.startBlock) + Number(cooldownBlocks),
+        blocksUntilRefund: gameData.started && !gameData.finalized ? 
+                          Math.max(0, Number(gameData.startBlock) + Number(cooldownBlocks) - Number(currentBlock)) : 0
+      }
+    } catch (error) {
+      return {
+        gameId,
+        exists: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  },
+
+  // Attempt to fix a game that wasn't properly started
+  async fixGameStart(gameId: number, entryFee: bigint) {
+    const walletClient = createWalletClientForBrowser()
+    if (!walletClient) throw new Error('Wallet client not available')
+
+    const [account] = await walletClient.getAddresses()
+    if (!account) throw new Error('No account connected')
+
+    // First check if game exists
+    const gameData = await this.getGame(gameId)
+    
+    if (!gameData.started) {
+      // Game exists but not started - try to start it
+      console.log(`Attempting to start game ${gameId} with entry fee ${gameUtils.formatWeiToMon(entryFee)} MON`)
+      
+      const hash = await walletClient.writeContract({
+        address: GAME_CONTRACT_ADDRESS,
+        abi: GAME_CONTRACT_ABI,
+        functionName: 'startGame',
+        args: [BigInt(gameId)],
+        value: entryFee,
+        account,
+      })
+
+      return { action: 'started', hash }
+    } else if (gameData.startBlock === BigInt(0)) {
+      // Game is marked as started but startBlock is 0 - this is a critical error
+      throw new Error(`CRITICAL: Game ${gameId} is marked as started but startBlock is 0. This indicates a blockchain state corruption.`)
+    } else {
+      // Game is properly started
+      return { action: 'already_started', hash: null }
+    }
   }
 } 

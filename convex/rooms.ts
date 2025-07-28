@@ -14,11 +14,16 @@ const generateRoomCode = (): string => {
 };
 
 // Helper function to resolve round results
-const resolveRoundResults = async (ctx: any, roomId: Id<"rooms">, currentRound: number) => {
+const resolveRoundResults = async (ctx: any, roomId: Id<"rooms">, currentRound: number): Promise<{
+  winningPath: string;
+  eliminatedPlayers: number;
+  totalVotes: number;
+  policeChoice: string;
+}> => {
   // Get all votes for this round
   const votes = await ctx.db
     .query("votes")
-    .withIndex("by_room_and_round", (q) => 
+    .withIndex("by_room_and_round", (q: any) => 
       q.eq("roomId", roomId).eq("round", currentRound)
     )
     .collect();
@@ -26,19 +31,19 @@ const resolveRoundResults = async (ctx: any, roomId: Id<"rooms">, currentRound: 
   // Get all players in the room
   const players = await ctx.db
     .query("players")
-    .withIndex("by_room", (q) => q.eq("roomId", roomId))
+    .withIndex("by_room", (q: any) => q.eq("roomId", roomId))
     .collect();
 
   // Count votes by choice
   const voteCounts: Record<string, number> = {};
-  votes.forEach(vote => {
+  votes.forEach((vote: any) => {
     voteCounts[vote.choice] = (voteCounts[vote.choice] || 0) + 1;
   });
 
   // Find the most voted path (police choice)
-  const policeVotes = votes.filter(v => v.role === 'police');
+  const policeVotes = votes.filter((v: any) => v.role === 'police');
   const policeChoiceCounts: Record<string, number> = {};
-  policeVotes.forEach(vote => {
+  policeVotes.forEach((vote: any) => {
     policeChoiceCounts[vote.choice] = (policeChoiceCounts[vote.choice] || 0) + 1;
   });
 
@@ -47,19 +52,19 @@ const resolveRoundResults = async (ctx: any, roomId: Id<"rooms">, currentRound: 
   )?.[0] || Object.keys(voteCounts)[0] || '';
 
   // Get game config for path names
-  const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+  const config: any = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
   const stageIndex = currentRound - 1;
-  const stagePaths = config.pathNames?.slice(stageIndex * 3, stageIndex * 3 + 3) || [];
+  const stagePaths: string[] = config.pathNames?.slice(stageIndex * 3, stageIndex * 3 + 3) || [];
   
   // Determine winning path (randomly select from stage paths, excluding police choice)
-  const availablePaths = stagePaths.filter(path => path !== mostVotedPath);
-  const winningPath = availablePaths[Math.floor(Math.random() * availablePaths.length)] || stagePaths[0] || '';
+  const availablePaths: string[] = stagePaths.filter((path: string) => path !== mostVotedPath);
+  const winningPath: string = availablePaths[Math.floor(Math.random() * availablePaths.length)] || stagePaths[0] || '';
 
   // Eliminate players who didn't vote or voted for the losing path
   const eliminatedPlayers: Id<"players">[] = [];
   
   for (const player of players) {
-    const playerVote = votes.find(v => v.address === player.address);
+    const playerVote = votes.find((v: any) => v.address === player.address);
     
     // Eliminate if no vote or voted for losing path
     if (!playerVote || playerVote.choice !== winningPath) {
@@ -398,10 +403,15 @@ export const resolveRound = mutation({
     }
 
     // Resolve the current round
-    const result = await resolveRoundResults(ctx, args.roomId, room.currentRound);
+    const result: {
+      winningPath: string;
+      eliminatedPlayers: number;
+      totalVotes: number;
+      policeChoice: string;
+    } = await resolveRoundResults(ctx, args.roomId, room.currentRound);
     
     // Get config for timing
-    const config = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
+    const config: any = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
     
     // Determine next phase
     let nextPhase: "voting" | "committing" | "cooldown" | "finished" = "finished";
