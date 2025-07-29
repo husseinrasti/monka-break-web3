@@ -65,6 +65,17 @@ export const smartContract = {
     const [account] = await walletClient.getAddresses()
     if (!account) throw new Error('No account connected')
 
+    // Check if game already exists
+    try {
+      const existingGame = await this.getGame(gameId)
+      if (existingGame.creator !== '0x0000000000000000000000000000000000000000') {
+        throw new Error(`Game ${gameId} already exists`)
+      }
+    } catch (error) {
+      // Game doesn't exist, which is what we want
+      console.log(`Game ${gameId} doesn't exist, proceeding with creation`)
+    }
+
     // Call the createGame function on the smart contract
     const hash = await walletClient.writeContract({
       address: GAME_CONTRACT_ADDRESS,
@@ -84,6 +95,24 @@ export const smartContract = {
 
     const [account] = await walletClient.getAddresses()
     if (!account) throw new Error('No account connected')
+
+    // First estimate gas to check if transaction will succeed
+    console.log('Estimating gas for startGame transaction...')
+    try {
+      const publicClient = createPublicClientForBrowser()
+      const gasEstimate = await publicClient.estimateContractGas({
+        address: GAME_CONTRACT_ADDRESS,
+        abi: GAME_CONTRACT_ABI,
+        functionName: 'startGame',
+        args: [BigInt(gameId)],
+        value: entryFee,
+        account,
+      })
+      console.log('Gas estimate:', gasEstimate.toString())
+    } catch (error) {
+      console.error('Gas estimation failed:', error)
+      throw new Error(`Transaction will fail: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
 
     // Call the startGame function on the smart contract with entry fee as payment
     const hash = await walletClient.writeContract({
@@ -173,6 +202,41 @@ export const smartContract = {
     return await publicClient.getBlockNumber()
   },
 
+  // Get current gas price
+  async getGasPrice() {
+    const publicClient = createPublicClientForBrowser()
+    return await publicClient.getGasPrice()
+  },
+
+  // Estimate total cost for a transaction (entry fee + gas)
+  async estimateTotalCost(entryFee: bigint, gameId: number) {
+    const publicClient = createPublicClientForBrowser()
+    
+    try {
+      const gasEstimate = await publicClient.estimateContractGas({
+        address: GAME_CONTRACT_ADDRESS,
+        abi: GAME_CONTRACT_ABI,
+        functionName: 'startGame',
+        args: [BigInt(gameId)],
+        value: entryFee,
+      })
+      
+      const gasPrice = await publicClient.getGasPrice()
+      const gasCost = gasEstimate * gasPrice
+      const totalCost = entryFee + gasCost
+      
+      return {
+        entryFee,
+        gasEstimate,
+        gasPrice,
+        gasCost,
+        totalCost
+      }
+    } catch (error) {
+      throw new Error(`Failed to estimate transaction cost: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  },
+
   // Refund a stuck game (finalize with empty winners array)
   async refundGame(gameId: number) {
     const walletClient = createWalletClientForBrowser()
@@ -255,6 +319,53 @@ export const smartContract = {
     } else {
       // Game is properly started
       return { action: 'already_started', hash: null }
+    }
+  },
+
+  // Wait for transaction to be mined and check its status
+  async waitForTransaction(hash: `0x${string}`, maxAttempts: number = 30) {
+    const publicClient = createPublicClientForBrowser()
+    
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash })
+        console.log(`Transaction ${hash} mined in block ${receipt.blockNumber}`)
+        
+        if (receipt.status === 'success') {
+          return { success: true, receipt }
+        } else {
+          return { success: false, receipt, error: 'Transaction failed' }
+        }
+      } catch (error) {
+        console.log(`Waiting for transaction ${hash}... (attempt ${i + 1}/${maxAttempts})`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+    }
+    
+    throw new Error(`Transaction ${hash} did not get mined within ${maxAttempts * 2} seconds`)
+  },
+
+  // Get detailed transaction information
+  async getTransactionDetails(hash: `0x${string}`) {
+    const publicClient = createPublicClientForBrowser()
+    
+    try {
+      const receipt = await publicClient.getTransactionReceipt({ hash })
+      const transaction = await publicClient.getTransaction({ hash })
+      
+      return {
+        hash,
+        status: receipt.status,
+        blockNumber: receipt.blockNumber,
+        gasUsed: receipt.gasUsed,
+        effectiveGasPrice: receipt.effectiveGasPrice,
+        from: transaction.from,
+        to: transaction.to,
+        value: transaction.value,
+        input: transaction.input
+      }
+    } catch (error) {
+      return { hash, error: error instanceof Error ? error.message : 'Unknown error' }
     }
   }
 } 
