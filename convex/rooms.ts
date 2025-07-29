@@ -420,24 +420,48 @@ export const resolveRound = mutation({
     // Get config for timing
     const config: any = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
     
-    // Determine next phase - simplified logic
+    // Determine next phase
     let nextPhase: "voting" | "finished" = "finished";
     let phaseEndTime: number | undefined;
+    let winners: string[] = [];
     
     if (room.currentRound < room.maxRounds) {
       // More rounds to go - move to next voting round
       nextPhase = "voting";
       phaseEndTime = Date.now() + (config.timings.voteDuration * 1000);
     } else {
-      // Final round finished
+      // Final round finished - determine winners
       nextPhase = "finished";
+      
+      // Get all players to determine winners
+      const players = await ctx.db
+        .query("players")
+        .withIndex("by_room", (q) => q.eq("roomId", args.roomId))
+        .collect();
+      
+      // Check if any thieves survived to the final round
+      const survivingThieves = players.filter(p => p.role === 'thief' && !p.eliminated);
+      
+      if (survivingThieves.length > 0) {
+        // Thieves win if any survived to the final round
+        winners = survivingThieves.map(p => p.address);
+      } else {
+        // Police win if all thieves were eliminated
+        const police = players.filter(p => p.role === 'police');
+        winners = police.map(p => p.address);
+      }
     }
 
     // Update room state
     const updateData: any = {
       gamePhase: nextPhase,
-      winningPath: result.winningPath,
     };
+
+    // Only set winningPath in the final round
+    if (room.currentRound === room.maxRounds) {
+      updateData.winningPath = result.winningPath;
+      updateData.winners = winners;
+    }
 
     if (nextPhase === "voting" && room.currentRound < room.maxRounds) {
       updateData.currentRound = room.currentRound + 1;

@@ -62,10 +62,14 @@ export const GameResults: React.FC<GameResultsProps> = ({
 
   // Determine winners and game results
   const gameResults = {
-    winningTeam: winningPath ? 'thieves' : 'police',
-    winners: roomPlayers?.filter(p => 
-      winningPath ? p.role === 'thief' : p.role === 'police'
-    ).filter(p => !p.eliminated) || [],
+    winningTeam: roomData?.winners && roomData.winners.length > 0 
+      ? (roomPlayers?.find(p => p.address === roomData.winners![0])?.role === 'thief' ? 'thieves' : 'police')
+      : (winningPath ? 'thieves' : 'police'),
+    winners: roomData?.winners && roomData.winners.length > 0
+      ? roomPlayers?.filter(p => roomData.winners!.includes(p.address)) || []
+      : roomPlayers?.filter(p => 
+          winningPath ? p.role === 'thief' : p.role === 'police'
+        ).filter(p => !p.eliminated) || [],
     totalPrize: contractData?.vault || 0,
     isFinalized: contractData?.finalized || roomData?.finalized || false,
   }
