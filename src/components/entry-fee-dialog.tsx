@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { smartContract, gameUtils, monadTestnet } from '@/lib/smart-contract'
+import { createPublicClient, http } from 'viem'
 import { formatMON } from '@/lib/utils'
 import { Coins, Lock, AlertTriangle } from 'lucide-react'
 import { Id } from '@/../convex/_generated/dataModel'
@@ -41,6 +42,12 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
   const [entryFee, setEntryFee] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isSwitchingChain, setIsSwitchingChain] = useState(false)
+  const [costEstimate, setCostEstimate] = useState<{
+    entryFee: number
+    gasCost: number
+    totalCost: number
+  } | null>(null)
+  const [userBalance, setUserBalance] = useState<number | null>(null)
 
   // Set default entry fee from server config
   useEffect(() => {
@@ -54,6 +61,76 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
   // Check if user is on the correct chain
   const isCorrectChain = chain?.id === monadTestnet.id
   const minFee = gameConfig?.entryFeeMinimum || 2
+
+  // Estimate cost when entry fee changes
+  useEffect(() => {
+    const estimateCost = async () => {
+      if (!entryFee || !address || !isCorrectChain || parseFloat(entryFee) < minFee) {
+        setCostEstimate(null)
+        return
+      }
+
+      try {
+        const fee = parseFloat(entryFee)
+        const entryFeeWei = gameUtils.parseMonToWei(fee)
+        const roomIdNumber = parseInt(roomId.replace(/[^0-9]/g, ''))
+        const timestamp = Date.now()
+        const gameId = timestamp + roomIdNumber
+        
+        // Ensure game ID is positive and reasonable
+        if (gameId <= 0 || gameId > Number.MAX_SAFE_INTEGER) {
+          setCostEstimate(null)
+          return
+        }
+        
+        console.log('Cost estimation game ID:', {
+          roomId,
+          roomIdNumber,
+          timestamp,
+          gameId
+        })
+        
+        const estimate = await smartContract.estimateTotalCost(entryFeeWei, gameId)
+        setCostEstimate({
+          entryFee: gameUtils.formatWeiToMon(estimate.entryFee),
+          gasCost: gameUtils.formatWeiToMon(estimate.gasCost),
+          totalCost: gameUtils.formatWeiToMon(estimate.totalCost)
+        })
+      } catch (error) {
+        console.error('Failed to estimate cost:', error)
+        setCostEstimate(null)
+      }
+    }
+
+    // Debounce the cost estimation
+    const timeoutId = setTimeout(estimateCost, 500)
+    return () => clearTimeout(timeoutId)
+  }, [entryFee, address, isCorrectChain, minFee])
+
+  // Get user balance
+  useEffect(() => {
+    const getBalance = async () => {
+      if (!address || !isCorrectChain) {
+        setUserBalance(null)
+        return
+      }
+
+      try {
+        const publicClient = createPublicClient({
+          chain: monadTestnet,
+          transport: http()
+        })
+        
+        const balance = await publicClient.getBalance({ address })
+        setUserBalance(gameUtils.formatWeiToMon(balance))
+      } catch (error) {
+        console.error('Failed to get balance:', error)
+        setUserBalance(null)
+      }
+    }
+
+    getBalance()
+  }, [address, isCorrectChain])
 
   const handleSwitchChain = async () => {
     if (!switchChain) return
@@ -90,28 +167,163 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
     setIsLoading(true)
     try {
       // Generate a unique game ID for the smart contract
-      const gameId = Math.floor(Math.random() * 1000000) + Date.now()
+      // Use a combination of timestamp and room ID for uniqueness
+      const roomIdNumber = parseInt(roomId.replace(/[^0-9]/g, ''))
+      const timestamp = Date.now()
+      const gameId = timestamp + roomIdNumber
+      
+      // Ensure game ID is positive and reasonable
+      if (gameId <= 0 || gameId > Number.MAX_SAFE_INTEGER) {
+        throw new Error('Invalid game ID generated. Please try again.')
+      }
+      
+      console.log('Game ID generation:', {
+        roomId,
+        roomIdNumber,
+        timestamp,
+        gameId,
+        gameIdHex: '0x' + gameId.toString(16)
+      })
+      
+
       
       // Convert MON to wei
       const entryFeeWei = gameUtils.parseMonToWei(fee)
       
       console.log('Starting game with:', { gameId, entryFeeWei, fee })
       
-      // First create the game on the smart contract
-      console.log('Creating game on blockchain...')
-      const createHash = await smartContract.createGame(gameId)
-      console.log('Game created with hash:', createHash)
+      // Check user's MON balance first
+      console.log('Checking user balance...')
+      const publicClient = createPublicClient({
+        chain: monadTestnet,
+        transport: http()
+      })
       
-      // Wait a moment for the transaction to be mined
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const balance = await publicClient.getBalance({ address })
+      console.log('User balance:', balance.toString(), 'wei')
+      console.log('Required entry fee:', entryFeeWei.toString(), 'wei')
+      
+      if (balance < entryFeeWei) {
+        throw new Error(`Insufficient MON balance. You have ${gameUtils.formatWeiToMon(balance)} MON but need ${fee} MON for entry fee.`)
+      }
+      
+      // Check minimum entry fee from contract
+      console.log('Checking minimum entry fee from contract...')
+      const minEntryFeeWei = await smartContract.getMinEntryFee()
+      console.log('Contract minimum entry fee:', gameUtils.formatWeiToMon(minEntryFeeWei), 'MON')
+      
+      if (entryFeeWei < minEntryFeeWei) {
+        throw new Error(`Entry fee too low. Contract requires minimum ${gameUtils.formatWeiToMon(minEntryFeeWei)} MON, but you're sending ${fee} MON.`)
+      }
+      
+      // Estimate total transaction cost
+      console.log('Estimating total transaction cost...')
+      const costEstimate = await smartContract.estimateTotalCost(entryFeeWei, gameId)
+      console.log('Cost estimate:', {
+        entryFee: gameUtils.formatWeiToMon(costEstimate.entryFee),
+        gasCost: gameUtils.formatWeiToMon(costEstimate.gasCost),
+        totalCost: gameUtils.formatWeiToMon(costEstimate.totalCost)
+      })
+      
+      // Check if user has enough balance for total cost
+      if (balance < costEstimate.totalCost) {
+        throw new Error(`Insufficient balance for total cost. You have ${gameUtils.formatWeiToMon(balance)} MON but need ${gameUtils.formatWeiToMon(costEstimate.totalCost)} MON (entry fee + gas).`)
+      }
+      
+      // Check if game already exists on blockchain
+      console.log('Checking if game already exists on blockchain...')
+      try {
+        const existingGame = await smartContract.getGame(gameId)
+        if (existingGame.creator !== '0x0000000000000000000000000000000000000000') {
+          throw new Error(`Game ID ${gameId} already exists on blockchain. Please try again.`)
+        }
+      } catch (error) {
+        // Game doesn't exist, which is what we want
+        console.log(`Game ${gameId} doesn't exist on blockchain, proceeding with creation`)
+      }
+      
+      // First create the game on the smart contract with retry
+      console.log('Creating game on blockchain...')
+      let createHash: `0x${string}`
+      let createResult: any
+      let createRetryCount = 0
+      const maxCreateRetries = 2
+      
+      while (createRetryCount <= maxCreateRetries) {
+        try {
+          createHash = await smartContract.createGame(gameId)
+          console.log(`Game creation attempt ${createRetryCount + 1} with hash:`, createHash)
+          
+          // Wait for create transaction to be mined
+          console.log('Waiting for create transaction to be mined...')
+          createResult = await smartContract.waitForTransaction(createHash)
+          if (createResult.success) {
+            console.log('✅ Game creation transaction successful')
+            break
+          } else {
+            throw new Error(`Game creation failed: ${createResult.error}`)
+          }
+        } catch (error) {
+          createRetryCount++
+          console.error(`Game creation attempt ${createRetryCount} failed:`, error)
+          
+          if (createRetryCount > maxCreateRetries) {
+            throw error
+          }
+          
+          console.log(`Retrying game creation (attempt ${createRetryCount + 1}/${maxCreateRetries + 1})...`)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+      }
+      
+      // Verify game was created
+      console.log('Verifying game creation...')
+      const gameDataAfterCreate = await smartContract.getGame(gameId)
+      console.log('Game data after creation:', gameDataAfterCreate)
+      
+      if (gameDataAfterCreate.creator !== address) {
+        throw new Error('Game creation failed - creator address mismatch')
+      }
+      
+      // Add a small delay to ensure blockchain state is updated
+      console.log('Waiting for blockchain state to settle...')
+      await new Promise(resolve => setTimeout(resolve, 1000))
       
       // Then start the game with entry fee
-      console.log('Starting game on blockchain...')
-      const startHash = await smartContract.startGame(gameId, entryFeeWei)
-      console.log('Game started with hash:', startHash)
+      console.log('Starting game on blockchain with entry fee...')
+      console.log('Entry fee in wei:', entryFeeWei.toString())
       
-      // Wait for the start transaction to be mined
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      let startHash: `0x${string}`
+      let startResult: any
+      let retryCount = 0
+      const maxRetries = 2
+      
+      while (retryCount <= maxRetries) {
+        try {
+          startHash = await smartContract.startGame(gameId, entryFeeWei)
+          console.log(`Game start attempt ${retryCount + 1} with hash:`, startHash)
+          
+          // Wait for start transaction to be mined
+          console.log('Waiting for start transaction to be mined...')
+          startResult = await smartContract.waitForTransaction(startHash)
+          if (startResult.success) {
+            console.log('✅ Game start transaction successful')
+            break
+          } else {
+            throw new Error(`Game start failed: ${startResult.error}`)
+          }
+        } catch (error) {
+          retryCount++
+          console.error(`Start game attempt ${retryCount} failed:`, error)
+          
+          if (retryCount > maxRetries) {
+            throw error
+          }
+          
+          console.log(`Retrying start game (attempt ${retryCount + 1}/${maxRetries + 1})...`)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+      }
       
       // Verify the game was started correctly on-chain
       console.log('Verifying game state on blockchain...')
@@ -157,12 +369,24 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       if (error instanceof Error) {
         if (error.message.includes('CRITICAL:')) {
           errorMessage = error.message
-        } else if (error.message.includes('insufficient funds')) {
-          errorMessage = 'Insufficient MON balance. Please ensure you have enough MON to pay the entry fee.'
+        } else if (error.message.includes('insufficient funds') || error.message.includes('Insufficient MON balance')) {
+          errorMessage = error.message
         } else if (error.message.includes('user rejected')) {
           errorMessage = 'Transaction was rejected by user. Please try again.'
         } else if (error.message.includes('network')) {
           errorMessage = 'Network error. Please check your connection and try again.'
+        } else if (error.message.includes('execution reverted')) {
+          if (error.message.includes('GameNotFound()')) {
+            errorMessage = 'Game not found on blockchain. This usually means the game creation failed or the game ID is invalid. Please try again.'
+          } else {
+            errorMessage = 'Transaction reverted. This could be due to insufficient gas, contract validation failure, or network issues.'
+          }
+        } else if (error.message.includes('insufficient funds for gas')) {
+          errorMessage = 'Insufficient funds for gas fees. Please ensure you have enough MON for both the entry fee and gas costs.'
+        } else if (error.message.includes('nonce')) {
+          errorMessage = 'Transaction nonce error. Please try again in a few moments.'
+        } else if (error.message.includes('replacement transaction')) {
+          errorMessage = 'Transaction replacement error. Please wait a moment and try again.'
         } else {
           errorMessage = `Failed to start game: ${error.message}`
         }
@@ -231,6 +455,42 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
             <p className="text-xs text-muted-foreground">
               Minimum: {minFee} MON • Higher fees create larger prize pools
             </p>
+            
+            {/* Cost Estimate */}
+            {costEstimate && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+                <div className="text-sm font-medium text-blue-900 mb-1">Estimated Total Cost</div>
+                <div className="space-y-1 text-xs text-blue-800">
+                  <div className="flex justify-between">
+                    <span>Entry Fee:</span>
+                    <span>{costEstimate.entryFee.toFixed(6)} MON</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Gas Fee:</span>
+                    <span>{costEstimate.gasCost.toFixed(6)} MON</span>
+                  </div>
+                  <div className="flex justify-between font-medium border-t border-blue-300 pt-1">
+                    <span>Total:</span>
+                    <span>{costEstimate.totalCost.toFixed(6)} MON</span>
+                  </div>
+                </div>
+                
+                {/* Balance Check */}
+                {userBalance !== null && (
+                  <div className="mt-2 pt-2 border-t border-blue-300">
+                    <div className="flex justify-between text-xs">
+                      <span>Your Balance:</span>
+                      <span>{userBalance.toFixed(6)} MON</span>
+                    </div>
+                    {userBalance < costEstimate.totalCost && (
+                      <div className="text-xs text-red-600 mt-1 font-medium">
+                        ⚠️ Insufficient balance for total cost
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="bg-muted/50 rounded-lg p-3 border border-border">
@@ -257,7 +517,13 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
           </Button>
           <Button
             onClick={handleStartGame}
-            disabled={isLoading || parseFloat(entryFee) < minFee || !gameConfig || !isCorrectChain}
+            disabled={
+              isLoading || 
+              parseFloat(entryFee) < minFee || 
+              !gameConfig || 
+              !isCorrectChain ||
+              Boolean(costEstimate && userBalance !== null && userBalance < costEstimate.totalCost)
+            }
             className="min-w-[120px]"
           >
             {isLoading ? (
