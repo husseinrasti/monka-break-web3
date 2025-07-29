@@ -63,6 +63,13 @@ export default function GameRoomPage() {
 
   const handleStartGameClick = () => {
     if (!isConnected || !address || !roomData) return
+    
+    // Check if gameId exists (game was created on blockchain)
+    if (!roomData.gameId) {
+      alert('Game not properly created on blockchain. Please try creating the room again.')
+      return
+    }
+    
     setIsEntryFeeDialogOpen(true)
   }
 
@@ -394,12 +401,14 @@ export default function GameRoomPage() {
         )}
       </main>
 
-      {roomData?._id && (
+      {/* Entry Fee Dialog */}
+      {isEntryFeeDialogOpen && roomData && (
         <EntryFeeDialog
           isOpen={isEntryFeeDialogOpen}
           onClose={handleEntryFeeDialogClose}
-          onSuccess={handleGameStarted}
           roomId={roomData._id}
+          gameId={roomData.gameId || 0}
+          onSuccess={handleGameStarted}
         />
       )}
 

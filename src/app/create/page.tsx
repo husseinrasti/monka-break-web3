@@ -10,16 +10,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { WalletConnect } from '@/components/wallet-connect'
-import { ArrowLeft, Target, Shield } from 'lucide-react'
+import { ArrowLeft, Target, Shield, Loader2 } from 'lucide-react'
+import { smartContract } from '@/lib/smart-contract'
+import { Id } from '@/../convex/_generated/dataModel'
 
 export default function CreateGamePage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
   const createRoom = useMutation(api.rooms.createRoom)
+  const updateRoomGameId = useMutation(api.rooms.updateRoomGameId)
 
   const [nickname, setNickname] = useState('')
   const [selectedRole, setSelectedRole] = useState<'thief' | 'police'>('thief')
   const [isLoading, setIsLoading] = useState(false)
+  const [creationStep, setCreationStep] = useState<'idle' | 'convex' | 'contract' | 'complete'>('idle')
 
   const handleCreateRoom = async () => {
     if (!isConnected || !address) {
@@ -28,20 +32,148 @@ export default function CreateGamePage() {
     }
 
     setIsLoading(true)
+    setCreationStep('convex')
+    
+    let roomId: Id<'rooms'> | null = null
+    
     try {
+      // Step 1: Create room in Convex
+      console.log('Creating room in Convex...')
       const result = await createRoom({
         creator: address,
         nickname: nickname || undefined,
         role: selectedRole,
       })
-
+      
+      roomId = result.roomId
+      console.log('Room created in Convex:', { roomId: result.roomId, roomCode: result.roomCode })
+      
+      // Step 2: Create game on smart contract
+      setCreationStep('contract')
+      console.log('Creating game on smart contract...')
+      
+      // Generate unique gameId from roomId
+      const roomIdNumber = parseInt(roomId.replace(/[^0-9]/g, ''))
+      const timestamp = Date.now()
+      const gameId = timestamp + roomIdNumber
+      
+      // Ensure game ID is positive and reasonable
+      if (gameId <= 0 || gameId > Number.MAX_SAFE_INTEGER) {
+        throw new Error('Invalid game ID generated. Please try again.')
+      }
+      
+      console.log('Game ID generation:', {
+        roomId,
+        roomIdNumber,
+        timestamp,
+        gameId,
+        gameIdHex: '0x' + gameId.toString(16)
+      })
+      
+      // Check if game already exists on blockchain
+      console.log('Checking if game already exists on blockchain...')
+      try {
+        const existingGame = await smartContract.getGame(gameId)
+        if (existingGame.creator !== '0x0000000000000000000000000000000000000000') {
+          throw new Error(`Game ID ${gameId} already exists on blockchain. Please try again.`)
+        }
+      } catch (error) {
+        // Game doesn't exist, which is what we want
+        console.log(`Game ${gameId} doesn't exist on blockchain, proceeding with creation`)
+      }
+      
+      // Create game on smart contract with retry logic
+      let createHash: `0x${string}`
+      let createResult: any
+      let retryCount = 0
+      const maxRetries = 2
+      
+      while (retryCount <= maxRetries) {
+        try {
+          createHash = await smartContract.createGame(gameId)
+          console.log(`Game creation attempt ${retryCount + 1} with hash:`, createHash)
+          
+          // Wait for creation transaction to be mined
+          console.log('Waiting for creation transaction to be mined...')
+          createResult = await smartContract.waitForTransaction(createHash)
+          if (createResult.success) {
+            console.log('✅ Game creation transaction successful')
+            break
+          } else {
+            throw new Error(`Game creation failed: ${createResult.error}`)
+          }
+        } catch (error) {
+          retryCount++
+          console.error(`Create game attempt ${retryCount} failed:`, error)
+          
+          if (retryCount > maxRetries) {
+            throw error
+          }
+          
+          console.log(`Retrying game creation (attempt ${retryCount + 1}/${maxRetries + 1})...`)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+      }
+      
+      // Verify the game was created correctly on-chain
+      console.log('Verifying game creation on blockchain...')
+      const gameData = await smartContract.getGame(gameId)
+      console.log('Game data from blockchain:', gameData)
+      
+      if (gameData.creator !== address) {
+        throw new Error('Game creation failed - creator address mismatch')
+      }
+      
+      console.log('✅ Game successfully created on blockchain with gameId:', gameId)
+      
+      // Step 3: Update Convex room with gameId
+      console.log('Updating Convex room with gameId...')
+      await updateRoomGameId({
+        roomId: result.roomId,
+        gameId: gameId,
+      })
+      
+      setCreationStep('complete')
+      
       // Navigate to the game room
       router.push(`/game/${result.roomId}?code=${result.roomCode}`)
+      
     } catch (error) {
       console.error('Failed to create room:', error)
-      alert('Failed to create room. Please try again.')
+      
+      // Provide specific error messages for different failure scenarios
+      let errorMessage = 'Failed to create room'
+      if (error instanceof Error) {
+        if (error.message.includes('user rejected')) {
+          errorMessage = 'Transaction was rejected by user. Please try again.'
+        } else if (error.message.includes('network')) {
+          errorMessage = 'Network error. Please check your connection and try again.'
+        } else if (error.message.includes('insufficient funds')) {
+          errorMessage = 'Insufficient MON balance for gas fees. Please add more MON to your wallet.'
+        } else if (error.message.includes('already exists')) {
+          errorMessage = 'Game ID already exists. Please try again.'
+        } else {
+          errorMessage = error.message
+        }
+      }
+      
+      alert(errorMessage)
     } finally {
       setIsLoading(false)
+      setCreationStep('idle')
+    }
+  }
+
+  const getLoadingText = () => {
+    switch (creationStep) {
+      case 'convex':
+        return 'Creating room...'
+      case 'contract':
+        return 'Creating game on blockchain...'
+      case 'complete':
+        return 'Redirecting to game...'
+      default:
+        return 'Creating Game Room'
     }
   }
 
@@ -143,7 +275,10 @@ export default function CreateGamePage() {
               disabled={isLoading || !isConnected}
             >
               {isLoading ? (
-                'Creating Room...'
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  {getLoadingText()}
+                </>
               ) : !isConnected ? (
                 'Connect Wallet to Create'
               ) : (

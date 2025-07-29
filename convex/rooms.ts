@@ -537,6 +537,27 @@ export const refundGame = mutation({
   },
 });
 
+export const updateRoomGameId = mutation({
+  args: {
+    roomId: v.id("rooms"),
+    gameId: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const room = await ctx.db.get(args.roomId);
+    if (!room) {
+      throw new Error("Room not found");
+    }
+
+    // Update the room with the gameId
+    await ctx.db.patch(args.roomId, {
+      gameId: args.gameId,
+    });
+
+    return null;
+  },
+});
+
 export const listActiveRooms = query({
   args: {},
   returns: v.array(v.object({

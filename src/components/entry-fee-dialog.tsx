@@ -25,6 +25,7 @@ type EntryFeeDialogProps = {
   isOpen: boolean
   onClose: () => void
   roomId: Id<'rooms'>
+  gameId: number
   onSuccess: () => void
 }
 
@@ -32,6 +33,7 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
   isOpen,
   onClose,
   roomId,
+  gameId,
   onSuccess,
 }) => {
   const { address, chain } = useAccount()
@@ -152,6 +154,11 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       return
     }
 
+    if (!gameId || gameId <= 0) {
+      alert('Invalid game ID. Please try creating the room again.')
+      return
+    }
+
     const fee = parseFloat(entryFee)
     if (fee < minFee) {
       alert(`Minimum entry fee is ${minFee} MON`)
@@ -166,26 +173,7 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
 
     setIsLoading(true)
     try {
-      // Generate a unique game ID for the smart contract
-      // Use a combination of timestamp and room ID for uniqueness
-      const roomIdNumber = parseInt(roomId.replace(/[^0-9]/g, ''))
-      const timestamp = Date.now()
-      const gameId = timestamp + roomIdNumber
-      
-      // Ensure game ID is positive and reasonable
-      if (gameId <= 0 || gameId > Number.MAX_SAFE_INTEGER) {
-        throw new Error('Invalid game ID generated. Please try again.')
-      }
-      
-      console.log('Game ID generation:', {
-        roomId,
-        roomIdNumber,
-        timestamp,
-        gameId,
-        gameIdHex: '0x' + gameId.toString(16)
-      })
-      
-
+      console.log('Starting game with existing gameId:', gameId)
       
       // Convert MON to wei
       const entryFeeWei = gameUtils.parseMonToWei(fee)
@@ -230,66 +218,24 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
         throw new Error(`Insufficient balance for total cost. You have ${gameUtils.formatWeiToMon(balance)} MON but need ${gameUtils.formatWeiToMon(costEstimate.totalCost)} MON (entry fee + gas).`)
       }
       
-      // Check if game already exists on blockchain
-      console.log('Checking if game already exists on blockchain...')
-      try {
-        const existingGame = await smartContract.getGame(gameId)
-        if (existingGame.creator !== '0x0000000000000000000000000000000000000000') {
-          throw new Error(`Game ID ${gameId} already exists on blockchain. Please try again.`)
-        }
-      } catch (error) {
-        // Game doesn't exist, which is what we want
-        console.log(`Game ${gameId} doesn't exist on blockchain, proceeding with creation`)
+      // Verify the game exists on blockchain and is not already started
+      console.log('Verifying game exists on blockchain...')
+      const gameData = await smartContract.getGame(gameId)
+      console.log('Game data from blockchain:', gameData)
+      
+      if (gameData.creator === '0x0000000000000000000000000000000000000000') {
+        throw new Error(`Game ${gameId} not found on blockchain. Please try creating the room again.`)
       }
       
-      // First create the game on the smart contract with retry
-      console.log('Creating game on blockchain...')
-      let createHash: `0x${string}`
-      let createResult: any
-      let createRetryCount = 0
-      const maxCreateRetries = 2
-      
-      while (createRetryCount <= maxCreateRetries) {
-        try {
-          createHash = await smartContract.createGame(gameId)
-          console.log(`Game creation attempt ${createRetryCount + 1} with hash:`, createHash)
-          
-          // Wait for create transaction to be mined
-          console.log('Waiting for create transaction to be mined...')
-          createResult = await smartContract.waitForTransaction(createHash)
-          if (createResult.success) {
-            console.log('✅ Game creation transaction successful')
-            break
-          } else {
-            throw new Error(`Game creation failed: ${createResult.error}`)
-          }
-        } catch (error) {
-          createRetryCount++
-          console.error(`Game creation attempt ${createRetryCount} failed:`, error)
-          
-          if (createRetryCount > maxCreateRetries) {
-            throw error
-          }
-          
-          console.log(`Retrying game creation (attempt ${createRetryCount + 1}/${maxCreateRetries + 1})...`)
-          await new Promise(resolve => setTimeout(resolve, 2000))
-        }
+      if (gameData.creator !== address) {
+        throw new Error('Game creator address mismatch. Only the room creator can start the game.')
       }
       
-      // Verify game was created
-      console.log('Verifying game creation...')
-      const gameDataAfterCreate = await smartContract.getGame(gameId)
-      console.log('Game data after creation:', gameDataAfterCreate)
-      
-      if (gameDataAfterCreate.creator !== address) {
-        throw new Error('Game creation failed - creator address mismatch')
+      if (gameData.started) {
+        throw new Error('Game is already started on blockchain.')
       }
       
-      // Add a small delay to ensure blockchain state is updated
-      console.log('Waiting for blockchain state to settle...')
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // Then start the game with entry fee
+      // Start the game with entry fee
       console.log('Starting game on blockchain with entry fee...')
       console.log('Entry fee in wei:', entryFeeWei.toString())
       
@@ -327,27 +273,27 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       
       // Verify the game was started correctly on-chain
       console.log('Verifying game state on blockchain...')
-      const gameData = await smartContract.getGame(gameId)
-      console.log('Game data from blockchain:', gameData)
+      const gameDataAfterStart = await smartContract.getGame(gameId)
+      console.log('Game data from blockchain after start:', gameDataAfterStart)
       
       // Critical validation: Check if startBlock is set correctly
-      if (gameData.startBlock === BigInt(0)) {
+      if (gameDataAfterStart.startBlock === BigInt(0)) {
         throw new Error('CRITICAL: Game startBlock is 0. The startGame transaction may have failed or been reverted.')
       }
       
-      if (!gameData.started) {
+      if (!gameDataAfterStart.started) {
         throw new Error('CRITICAL: Game is not marked as started on blockchain.')
       }
       
-      if (gameData.entryFee === BigInt(0)) {
+      if (gameDataAfterStart.entryFee === BigInt(0)) {
         throw new Error('CRITICAL: Game entry fee is 0 on blockchain.')
       }
       
       console.log('✅ Game successfully started on blockchain with:', {
-        startBlock: Number(gameData.startBlock),
-        started: gameData.started,
-        entryFee: gameUtils.formatWeiToMon(gameData.entryFee),
-        vault: gameUtils.formatWeiToMon(gameData.vault)
+        startBlock: Number(gameDataAfterStart.startBlock),
+        started: gameDataAfterStart.started,
+        entryFee: gameUtils.formatWeiToMon(gameDataAfterStart.entryFee),
+        vault: gameUtils.formatWeiToMon(gameDataAfterStart.vault)
       })
       
       // Update Convex with the game start
@@ -377,18 +323,18 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
           errorMessage = 'Network error. Please check your connection and try again.'
         } else if (error.message.includes('execution reverted')) {
           if (error.message.includes('GameNotFound()')) {
-            errorMessage = 'Game not found on blockchain. This usually means the game creation failed or the game ID is invalid. Please try again.'
+            errorMessage = 'Game not found on blockchain. Please try creating the room again.'
+          } else if (error.message.includes('GameAlreadyStarted()')) {
+            errorMessage = 'Game is already started on blockchain.'
+          } else if (error.message.includes('NotCreator()')) {
+            errorMessage = 'Only the room creator can start the game.'
+          } else if (error.message.includes('InsufficientEntryFee()')) {
+            errorMessage = 'Entry fee is too low. Please increase the amount.'
           } else {
-            errorMessage = 'Transaction reverted. This could be due to insufficient gas, contract validation failure, or network issues.'
+            errorMessage = `Smart contract error: ${error.message}`
           }
-        } else if (error.message.includes('insufficient funds for gas')) {
-          errorMessage = 'Insufficient funds for gas fees. Please ensure you have enough MON for both the entry fee and gas costs.'
-        } else if (error.message.includes('nonce')) {
-          errorMessage = 'Transaction nonce error. Please try again in a few moments.'
-        } else if (error.message.includes('replacement transaction')) {
-          errorMessage = 'Transaction replacement error. Please wait a moment and try again.'
         } else {
-          errorMessage = `Failed to start game: ${error.message}`
+          errorMessage = error.message
         }
       }
       
