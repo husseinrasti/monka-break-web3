@@ -132,8 +132,10 @@ export const commitVote = mutation({
       throw new Error("Room not found");
     }
 
-    if (room.gamePhase !== "committing") {
-      throw new Error("Not in committing phase");
+    // Since committing phase is removed, this function is now a no-op
+    // but kept for backward compatibility
+    if (!room.started) {
+      throw new Error("Game not started");
     }
 
     // Find player's vote for current round

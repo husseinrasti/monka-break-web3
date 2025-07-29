@@ -276,8 +276,6 @@ export const getRoomByCode = query({
       gamePhase: v.union(
         v.literal("waiting"),
         v.literal("voting"),
-        v.literal("committing"),
-        v.literal("cooldown"),
         v.literal("finished")
       ),
       phaseEndTime: v.optional(v.number()),
@@ -387,8 +385,6 @@ export const resolveRound = mutation({
     policeChoice: v.string(),
     nextPhase: v.union(
       v.literal("voting"),
-      v.literal("committing"),
-      v.literal("cooldown"),
       v.literal("finished")
     ),
   }),
@@ -413,22 +409,14 @@ export const resolveRound = mutation({
     // Get config for timing
     const config: any = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
     
-    // Determine next phase
-    let nextPhase: "voting" | "committing" | "cooldown" | "finished" = "finished";
+    // Determine next phase - simplified logic
+    let nextPhase: "voting" | "finished" = "finished";
     let phaseEndTime: number | undefined;
     
     if (room.currentRound < room.maxRounds) {
-      // More rounds to go
-      if (room.gamePhase === "voting") {
-        nextPhase = "committing";
-        phaseEndTime = Date.now() + (config.timings.commitDuration * 1000);
-      } else if (room.gamePhase === "committing") {
-        nextPhase = "cooldown";
-        phaseEndTime = Date.now() + (config.timings.cooldown * 1000);
-      } else if (room.gamePhase === "cooldown") {
-        nextPhase = "voting";
-        phaseEndTime = Date.now() + (config.timings.voteDuration * 1000);
-      }
+      // More rounds to go - move to next voting round
+      nextPhase = "voting";
+      phaseEndTime = Date.now() + (config.timings.voteDuration * 1000);
     } else {
       // Final round finished
       nextPhase = "finished";
@@ -445,8 +433,6 @@ export const resolveRound = mutation({
       updateData.phaseEndTime = phaseEndTime;
     } else if (nextPhase === "finished") {
       updateData.phaseEndTime = undefined;
-    } else {
-      updateData.phaseEndTime = phaseEndTime;
     }
 
     await ctx.db.patch(args.roomId, updateData);
@@ -594,5 +580,54 @@ export const listActiveRooms = query({
     );
 
     return roomsWithPlayerCount;
+  },
+});
+
+// Cleanup function to remove a room and its associated players if creation fails
+export const deleteRoom = mutation({
+  args: { 
+    roomId: v.id("rooms"),
+    creatorAddress: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Verify the caller is the room creator
+    const room = await ctx.db.get(args.roomId);
+    if (!room) {
+      throw new Error("Room not found");
+    }
+    
+    if (room.creator !== args.creatorAddress) {
+      throw new Error("Only the room creator can delete the room");
+    }
+    
+    if (room.started) {
+      throw new Error("Cannot delete a room that has already started");
+    }
+    
+    // Delete all players in the room
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_room", (q) => q.eq("roomId", args.roomId))
+      .collect();
+      
+    for (const player of players) {
+      await ctx.db.delete(player._id);
+    }
+    
+    // Delete all votes in the room (if any)
+    const votes = await ctx.db
+      .query("votes")
+      .withIndex("by_room_and_round", (q) => q.eq("roomId", args.roomId))
+      .collect();
+      
+    for (const vote of votes) {
+      await ctx.db.delete(vote._id);
+    }
+    
+    // Delete the room itself
+    await ctx.db.delete(args.roomId);
+    
+    return null;
   },
 }); 

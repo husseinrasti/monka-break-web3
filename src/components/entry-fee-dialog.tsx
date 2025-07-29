@@ -75,22 +75,6 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       try {
         const fee = parseFloat(entryFee)
         const entryFeeWei = gameUtils.parseMonToWei(fee)
-        const roomIdNumber = parseInt(roomId.replace(/[^0-9]/g, ''))
-        const timestamp = Date.now()
-        const gameId = timestamp + roomIdNumber
-        
-        // Ensure game ID is positive and reasonable
-        if (gameId <= 0 || gameId > Number.MAX_SAFE_INTEGER) {
-          setCostEstimate(null)
-          return
-        }
-        
-        console.log('Cost estimation game ID:', {
-          roomId,
-          roomIdNumber,
-          timestamp,
-          gameId
-        })
         
         const estimate = await smartContract.estimateTotalCost(entryFeeWei, gameId)
         setCostEstimate({
@@ -154,11 +138,6 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       return
     }
 
-    if (!gameId || gameId <= 0) {
-      alert('Invalid game ID. Please try creating the room again.')
-      return
-    }
-
     const fee = parseFloat(entryFee)
     if (fee < minFee) {
       alert(`Minimum entry fee is ${minFee} MON`)
@@ -173,12 +152,10 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
 
     setIsLoading(true)
     try {
-      console.log('Starting game with existing gameId:', gameId)
+      console.log('Starting game with gameId:', gameId)
       
       // Convert MON to wei
       const entryFeeWei = gameUtils.parseMonToWei(fee)
-      
-      console.log('Starting game with:', { gameId, entryFeeWei, fee })
       
       // Check user's MON balance first
       console.log('Checking user balance...')
@@ -204,38 +181,7 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
         throw new Error(`Entry fee too low. Contract requires minimum ${gameUtils.formatWeiToMon(minEntryFeeWei)} MON, but you're sending ${fee} MON.`)
       }
       
-      // Estimate total transaction cost
-      console.log('Estimating total transaction cost...')
-      const costEstimate = await smartContract.estimateTotalCost(entryFeeWei, gameId)
-      console.log('Cost estimate:', {
-        entryFee: gameUtils.formatWeiToMon(costEstimate.entryFee),
-        gasCost: gameUtils.formatWeiToMon(costEstimate.gasCost),
-        totalCost: gameUtils.formatWeiToMon(costEstimate.totalCost)
-      })
-      
-      // Check if user has enough balance for total cost
-      if (balance < costEstimate.totalCost) {
-        throw new Error(`Insufficient balance for total cost. You have ${gameUtils.formatWeiToMon(balance)} MON but need ${gameUtils.formatWeiToMon(costEstimate.totalCost)} MON (entry fee + gas).`)
-      }
-      
-      // Verify the game exists on blockchain and is not already started
-      console.log('Verifying game exists on blockchain...')
-      const gameData = await smartContract.getGame(gameId)
-      console.log('Game data from blockchain:', gameData)
-      
-      if (gameData.creator === '0x0000000000000000000000000000000000000000') {
-        throw new Error(`Game ${gameId} not found on blockchain. Please try creating the room again.`)
-      }
-      
-      if (gameData.creator !== address) {
-        throw new Error('Game creator address mismatch. Only the room creator can start the game.')
-      }
-      
-      if (gameData.started) {
-        throw new Error('Game is already started on blockchain.')
-      }
-      
-      // Start the game with entry fee
+      // Start the game with entry fee (game already created)
       console.log('Starting game on blockchain with entry fee...')
       console.log('Entry fee in wei:', entryFeeWei.toString())
       
@@ -273,27 +219,27 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
       
       // Verify the game was started correctly on-chain
       console.log('Verifying game state on blockchain...')
-      const gameDataAfterStart = await smartContract.getGame(gameId)
-      console.log('Game data from blockchain after start:', gameDataAfterStart)
+      const gameData = await smartContract.getGame(gameId)
+      console.log('Game data from blockchain:', gameData)
       
       // Critical validation: Check if startBlock is set correctly
-      if (gameDataAfterStart.startBlock === BigInt(0)) {
+      if (gameData.startBlock === BigInt(0)) {
         throw new Error('CRITICAL: Game startBlock is 0. The startGame transaction may have failed or been reverted.')
       }
       
-      if (!gameDataAfterStart.started) {
+      if (!gameData.started) {
         throw new Error('CRITICAL: Game is not marked as started on blockchain.')
       }
       
-      if (gameDataAfterStart.entryFee === BigInt(0)) {
+      if (gameData.entryFee === BigInt(0)) {
         throw new Error('CRITICAL: Game entry fee is 0 on blockchain.')
       }
       
       console.log('✅ Game successfully started on blockchain with:', {
-        startBlock: Number(gameDataAfterStart.startBlock),
-        started: gameDataAfterStart.started,
-        entryFee: gameUtils.formatWeiToMon(gameDataAfterStart.entryFee),
-        vault: gameUtils.formatWeiToMon(gameDataAfterStart.vault)
+        startBlock: Number(gameData.startBlock),
+        started: gameData.started,
+        entryFee: gameUtils.formatWeiToMon(gameData.entryFee),
+        vault: gameUtils.formatWeiToMon(gameData.vault)
       })
       
       // Update Convex with the game start
@@ -333,6 +279,12 @@ export const EntryFeeDialog: React.FC<EntryFeeDialogProps> = ({
           } else {
             errorMessage = `Smart contract error: ${error.message}`
           }
+        } else if (error.message.includes('insufficient funds for gas')) {
+          errorMessage = 'Insufficient funds for gas fees. Please ensure you have enough MON for both the entry fee and gas costs.'
+        } else if (error.message.includes('nonce')) {
+          errorMessage = 'Transaction nonce error. Please try again in a few moments.'
+        } else if (error.message.includes('replacement transaction')) {
+          errorMessage = 'Transaction replacement error. Please wait a moment and try again.'
         } else {
           errorMessage = error.message
         }

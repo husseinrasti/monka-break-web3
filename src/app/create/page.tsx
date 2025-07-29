@@ -14,11 +14,23 @@ import { ArrowLeft, Target, Shield, Loader2 } from 'lucide-react'
 import { smartContract } from '@/lib/smart-contract'
 import { Id } from '@/../convex/_generated/dataModel'
 
+// Convert roomId string to deterministic number for smart contract
+const roomIdToNumber = (roomId: string): number => {
+  let hash = 0;
+  for (let i = 0; i < roomId.length; i++) {
+    const char = roomId.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+}
+
 export default function CreateGamePage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
   const createRoom = useMutation(api.rooms.createRoom)
   const updateRoomGameId = useMutation(api.rooms.updateRoomGameId)
+  const deleteRoom = useMutation(api.rooms.deleteRoom)
 
   const [nickname, setNickname] = useState('')
   const [selectedRole, setSelectedRole] = useState<'thief' | 'police'>('thief')
@@ -52,20 +64,11 @@ export default function CreateGamePage() {
       setCreationStep('contract')
       console.log('Creating game on smart contract...')
       
-      // Generate unique gameId from roomId
-      const roomIdNumber = parseInt(roomId.replace(/[^0-9]/g, ''))
-      const timestamp = Date.now()
-      const gameId = timestamp + roomIdNumber
-      
-      // Ensure game ID is positive and reasonable
-      if (gameId <= 0 || gameId > Number.MAX_SAFE_INTEGER) {
-        throw new Error('Invalid game ID generated. Please try again.')
-      }
+      // Generate deterministic gameId from roomId
+      const gameId = roomIdToNumber(result.roomId)
       
       console.log('Game ID generation:', {
-        roomId,
-        roomIdNumber,
-        timestamp,
+        roomId: result.roomId,
         gameId,
         gameIdHex: '0x' + gameId.toString(16)
       })
@@ -141,6 +144,21 @@ export default function CreateGamePage() {
     } catch (error) {
       console.error('Failed to create room:', error)
       
+      // Clean up the Convex room if it was created but smart contract creation failed
+      if (roomId && creationStep === 'contract') {
+        try {
+          console.log('Cleaning up Convex room due to smart contract creation failure...')
+          await deleteRoom({
+            roomId: roomId,
+            creatorAddress: address!,
+          })
+          console.log('✅ Convex room cleaned up successfully')
+        } catch (cleanupError) {
+          console.error('Failed to clean up Convex room:', cleanupError)
+          // Don't show cleanup errors to user, just log them
+        }
+      }
+      
       // Provide specific error messages for different failure scenarios
       let errorMessage = 'Failed to create room'
       if (error instanceof Error) {
@@ -151,7 +169,9 @@ export default function CreateGamePage() {
         } else if (error.message.includes('insufficient funds')) {
           errorMessage = 'Insufficient MON balance for gas fees. Please add more MON to your wallet.'
         } else if (error.message.includes('already exists')) {
-          errorMessage = 'Game ID already exists. Please try again.'
+          errorMessage = 'Game ID already exists. This room ID conflicts with an existing game. Please try again.'
+        } else if (error.message.includes('Game creation failed')) {
+          errorMessage = 'Failed to create game on blockchain. Please check your wallet connection and try again.'
         } else {
           errorMessage = error.message
         }

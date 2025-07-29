@@ -13,7 +13,6 @@ import { EntryFeeDialog } from '@/components/entry-fee-dialog'
 import { formatAddress, formatMON, getRoleColor, getRoleIcon } from '@/lib/utils'
 import { ArrowLeft, Users, Clock, Play, Target, Coins, AlertTriangle } from 'lucide-react'
 import { GameVoting } from '@/components/game-voting'
-import { GameCommit } from '@/components/game-commit'
 import { GameResults } from '@/components/game-results'
 import { RefundDialog } from '@/components/refund-dialog'
 import { RoundTimer } from '@/components/round-timer'
@@ -51,7 +50,7 @@ export default function GameRoomPage() {
       setTimeRemaining(remaining)
       
       // Update phase active state
-      const isActive = remaining > 0 && (roomData.gamePhase === 'voting' || roomData.gamePhase === 'committing')
+      const isActive = remaining > 0 && roomData.gamePhase === 'voting'
       setIsPhaseActive(isActive)
     }
 
@@ -107,10 +106,6 @@ export default function GameRoomPage() {
         return 'Waiting for players...'
       case 'voting':
         return `${getStageName(roomData.currentRound)}: Team Voting`
-      case 'committing':
-        return `${getStageName(roomData.currentRound)}: Blockchain Commit`
-      case 'cooldown':
-        return `${getStageName(roomData.currentRound)}: Processing...`
       case 'finished':
         return 'Game Finished!'
       default:
@@ -235,7 +230,7 @@ export default function GameRoomPage() {
                     <span>Time Remaining:</span>
                     <span className="font-mono">{Math.ceil(timeRemaining / 1000)}s</span>
                   </div>
-                  <Progress value={(timeRemaining / (roomData.gamePhase === 'voting' ? (gameConfig?.timings.voteDuration || 20) * 1000 : (gameConfig?.timings.commitDuration || 10) * 1000)) * 100} />
+                  <Progress value={(timeRemaining / (gameConfig?.timings.voteDuration || 20) * 1000) * 100} />
                 </div>
               )}
 
@@ -353,14 +348,6 @@ export default function GameRoomPage() {
                 playerAddress={address!}
                 phaseEndTime={roomData.phaseEndTime}
                 isPhaseActive={isPhaseActive}
-              />
-            )}
-            
-            {roomData.gamePhase === 'committing' && (
-              <GameCommit
-                roomId={roomData._id}
-                currentRound={roomData.currentRound}
-                playerAddress={address!}
               />
             )}
             

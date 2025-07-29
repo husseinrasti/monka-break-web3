@@ -12,7 +12,7 @@ import { Id } from '@/../convex/_generated/dataModel'
 interface RoundTimerProps {
   roomId: Id<'rooms'>
   phaseEndTime?: number
-  gamePhase: 'waiting' | 'voting' | 'committing' | 'cooldown' | 'finished'
+  gamePhase: 'waiting' | 'voting' | 'finished'
   currentRound: number
   onPhaseEnd: () => void
 }
@@ -62,7 +62,7 @@ export const RoundTimer: React.FC<RoundTimerProps> = ({
   }, [phaseEndTime, isPhaseEnded])
 
   const handlePhaseEnd = async () => {
-    if (gamePhase === 'voting' || gamePhase === 'committing') {
+    if (gamePhase === 'voting') {
       try {
         const result = await resolveRound({ roomId })
         setRoundResult(result)
@@ -82,10 +82,6 @@ export const RoundTimer: React.FC<RoundTimerProps> = ({
     switch (gamePhase) {
       case 'voting':
         return `${stageName}: Team Voting`
-      case 'committing':
-        return `${stageName}: Blockchain Commit`
-      case 'cooldown':
-        return `${stageName}: Processing...`
       case 'finished':
         return 'Game Finished!'
       default:
@@ -102,7 +98,7 @@ export const RoundTimer: React.FC<RoundTimerProps> = ({
   }
 
   const isPhaseActive = () => {
-    return timeRemaining > 0 && (gamePhase === 'voting' || gamePhase === 'committing')
+    return timeRemaining > 0 && (gamePhase === 'voting')
   }
 
   if (gamePhase === 'finished') {
@@ -169,7 +165,7 @@ export const RoundTimer: React.FC<RoundTimerProps> = ({
         )}
 
         {/* Warning for ended phase */}
-        {!isPhaseActive() && gamePhase !== 'cooldown' && (
+        {!isPhaseActive() && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
             <div className="flex items-center gap-2 text-amber-800">
               <AlertTriangle className="h-4 w-4" />

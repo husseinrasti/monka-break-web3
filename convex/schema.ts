@@ -37,8 +37,6 @@ export default defineSchema({
     gamePhase: v.union(
       v.literal("waiting"),
       v.literal("voting"),
-      v.literal("committing"), 
-      v.literal("cooldown"),
       v.literal("finished")
     ),
     phaseEndTime: v.optional(v.number()),
