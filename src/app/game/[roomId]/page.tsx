@@ -11,7 +11,7 @@ import { Progress } from '@/components/ui/progress'
 import { WalletConnect } from '@/components/wallet-connect'
 import { EntryFeeDialog } from '@/components/entry-fee-dialog'
 import { formatAddress, formatMON, getRoleColor, getRoleIcon } from '@/lib/utils'
-import { ArrowLeft, Users, Clock, Play, Target, Coins, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Users, Clock, Play, Target, Coins, AlertTriangle, Loader2 } from 'lucide-react'
 import { GameVoting } from '@/components/game-voting'
 import { GameResults } from '@/components/game-results'
 import { RefundDialog } from '@/components/refund-dialog'
@@ -116,8 +116,8 @@ export default function GameRoomPage() {
   const getTeamStats = () => {
     if (!roomPlayers) return { thieves: 0, police: 0 }
     return {
-      thieves: roomPlayers.filter(p => p.role === 'thief').length,
-      police: roomPlayers.filter(p => p.role === 'police').length,
+      thieves: roomPlayers.filter(p => p.role === 'thief' && !p.eliminated).length,
+      police: roomPlayers.filter(p => p.role === 'police').length, // Police are never eliminated
     }
   }
 
@@ -153,7 +153,34 @@ export default function GameRoomPage() {
   const currentPlayer = roomPlayers?.find(p => p.address === address)
   const teamStats = getTeamStats()
 
-  if (!roomData) {
+  // Determine if we're still loading the room data
+  // roomData will be undefined while loading, but we need to distinguish between:
+  // 1. Still loading (roomCode exists but roomData is undefined)
+  // 2. Loaded but room not found (roomCode exists, roomData is null)
+  const isLoadingRoom = roomCode && roomData === undefined
+  const roomNotFound = roomCode && roomData === null
+
+  // Show loading state while room data is being fetched
+  if (isLoadingRoom) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background flex items-center justify-center">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="flex items-center justify-center mb-4">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+            <CardTitle className="mb-2">Loading Room...</CardTitle>
+            <CardDescription>
+              Finding room {roomCode}...
+            </CardDescription>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show room not found only after we've confirmed the room doesn't exist
+  if (roomNotFound) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background flex items-center justify-center">
         <Card>
@@ -173,6 +200,11 @@ export default function GameRoomPage() {
         </Card>
       </div>
     )
+  }
+
+  // At this point, roomData should be defined (not null or undefined)
+  if (!roomData) {
+    return null // This should never happen, but TypeScript needs this check
   }
 
   return (
@@ -308,14 +340,11 @@ export default function GameRoomPage() {
                         key={player._id} 
                         className={`text-sm p-2 rounded border ${
                           player.address === address ? 'bg-accent/10 border-accent/30' : 'bg-muted/20'
-                        } ${player.eliminated ? 'opacity-50' : ''}`}
+                        }`}
                       >
                         <div className="font-medium">
                           {player.nickname || formatAddress(player.address)}
                         </div>
-                        {player.eliminated && (
-                          <div className="text-xs text-accent">Eliminated</div>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -348,6 +377,7 @@ export default function GameRoomPage() {
                 playerAddress={address!}
                 phaseEndTime={roomData.phaseEndTime}
                 isPhaseActive={isPhaseActive}
+                isEliminated={currentPlayer.eliminated}
               />
             )}
             

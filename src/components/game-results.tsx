@@ -23,7 +23,7 @@ export const GameResults: React.FC<GameResultsProps> = ({
   isCreator,
   winningPath 
 }) => {
-  const { address } = useAccount()
+  const { address, isConnected } = useAccount()
   const [isFinalizing, setIsFinalizing] = useState(false)
 
   // Get game config for dynamic stage names
@@ -70,24 +70,84 @@ export const GameResults: React.FC<GameResultsProps> = ({
     isFinalized: contractData?.finalized || roomData?.finalized || false,
   }
 
+  // Check if current user can finalize the game
+  const canFinalize = isCreator && 
+    isConnected && 
+    address && 
+    roomData?.creator === address && 
+    !gameResults.isFinalized &&
+    roomData?.gamePhase === 'finished'
+
+  // Get winner addresses from roomData.winners if available, otherwise from gameResults
+  const getWinnerAddresses = (): `0x${string}`[] => {
+    // First try to use winners from roomData (if game was already finalized in database)
+    if (roomData?.winners && roomData.winners.length > 0) {
+      return roomData.winners as `0x${string}`[]
+    }
+    
+    // Otherwise use calculated winners from current game state
+    if (gameResults.winners.length > 0) {
+      return gameResults.winners.map(w => w.address as `0x${string}`)
+    }
+    
+    return []
+  }
+
   const handleFinalizeGame = async () => {
-    if (!address || !roomData?.gameId) {
-      alert('Missing required data to finalize game')
+    // Enhanced validation with specific error messages
+    if (!isConnected) {
+      alert('Please connect your wallet to finalize the game')
+      return
+    }
+
+    if (!address) {
+      alert('No wallet address detected. Please connect your wallet.')
+      return
+    }
+
+    if (!roomData?.gameId) {
+      alert('Game ID not found. Cannot finalize game.')
+      return
+    }
+
+    if (roomData.creator !== address) {
+      alert('Only the room creator can finalize the game')
+      return
+    }
+
+    if (gameResults.isFinalized) {
+      alert('Game has already been finalized')
+      return
+    }
+
+    if (roomData.gamePhase !== 'finished') {
+      alert('Game is not finished yet. Cannot finalize.')
       return
     }
 
     setIsFinalizing(true)
     try {
       // Get winner addresses
-      const winnerAddresses = gameResults.winners.map(w => w.address as `0x${string}`)
+      const winnerAddresses = getWinnerAddresses()
       
-      if (winnerAddresses.length === 0) {
-        alert('No winners to distribute rewards to')
-        return
-      }
-
+      console.log('Finalizing game with:', {
+        gameId: roomData.gameId,
+        winnerAddresses,
+        creator: address,
+        totalPrize: gameResults.totalPrize
+      })
+      
       // Call smart contract to finalize and distribute rewards
-      await smartContract.finalizeGame(roomData.gameId, winnerAddresses)
+      const txHash = await smartContract.finalizeGame(roomData.gameId, winnerAddresses)
+      console.log('Smart contract finalizeGame transaction hash:', txHash)
+      
+      // Wait for transaction to be mined
+      console.log('Waiting for transaction to be mined...')
+      const txResult = await smartContract.waitForTransaction(txHash)
+      
+      if (!txResult.success) {
+        throw new Error(`Transaction failed: ${txResult.error}`)
+      }
       
       // Update Convex state
       await finalizeGame({
@@ -97,10 +157,33 @@ export const GameResults: React.FC<GameResultsProps> = ({
         vault: gameResults.totalPrize,
       })
 
-      alert('Game finalized! Rewards have been distributed to winners.')
+      if (winnerAddresses.length > 0) {
+        alert(`Game finalized! Rewards of ${formatMON(gameResults.totalPrize)} have been distributed to ${winnerAddresses.length} winners.`)
+      } else {
+        alert('Game finalized! No winners to distribute rewards to.')
+      }
     } catch (error) {
       console.error('Failed to finalize game:', error)
-      alert(`Failed to finalize game: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      
+      // Provide specific error messages based on error type
+      let errorMessage = 'Failed to finalize game'
+      if (error instanceof Error) {
+        if (error.message.includes('insufficient funds')) {
+          errorMessage = 'Insufficient funds for gas fees'
+        } else if (error.message.includes('user rejected')) {
+          errorMessage = 'Transaction was rejected by user'
+        } else if (error.message.includes('GameAlreadyFinalized')) {
+          errorMessage = 'Game has already been finalized on the blockchain'
+        } else if (error.message.includes('OnlyCreatorCanCall')) {
+          errorMessage = 'Only the game creator can finalize the game'
+        } else if (error.message.includes('GameNotStarted')) {
+          errorMessage = 'Game has not been started yet'
+        } else {
+          errorMessage = error.message
+        }
+      }
+      
+      alert(`Failed to finalize game: ${errorMessage}`)
     } finally {
       setIsFinalizing(false)
     }
@@ -294,29 +377,48 @@ export const GameResults: React.FC<GameResultsProps> = ({
       </Card>
 
       {/* Finalize Game (Creator Only) */}
-      {isCreator && !gameResults.isFinalized && (
+      {isCreator && (
         <Card>
           <CardHeader>
             <CardTitle>Finalize Game</CardTitle>
             <CardDescription>
-              Trigger the smart contract to distribute {formatMON(gameResults.totalPrize)} to {gameResults.winners.length} winners
+              {canFinalize ? (
+                gameResults.winners.length > 0 
+                  ? `Trigger the smart contract to distribute ${formatMON(gameResults.totalPrize)} to ${gameResults.winners.length} winners`
+                  : `Trigger the smart contract to finalize the game (no winners to distribute rewards to)`
+              ) : (
+                <div className="space-y-1">
+                  {!isConnected && <div>• Please connect your wallet</div>}
+                  {isConnected && !address && <div>• Wallet address not detected</div>}
+                  {address && roomData?.creator !== address && <div>• Only the room creator can finalize the game</div>}
+                  {gameResults.isFinalized && <div>• Game has already been finalized</div>}
+                  {roomData?.gamePhase !== 'finished' && <div>• Game is not finished yet</div>}
+                </div>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button
               onClick={handleFinalizeGame}
-              disabled={isFinalizing || gameResults.winners.length === 0}
+              disabled={isFinalizing || !canFinalize}
               className="w-full"
               size="lg"
             >
               {isFinalizing ? (
                 'Finalizing Game...'
-              ) : (
+              ) : !canFinalize ? (
+                'Cannot Finalize'
+              ) : gameResults.winners.length > 0 ? (
                 `Finalize & Distribute ${formatMON(gameResults.totalPrize)}`
+              ) : (
+                'Finalize Game'
               )}
             </Button>
             <div className="text-xs text-muted-foreground text-center mt-2">
-              This will call the smart contract to distribute rewards
+              {canFinalize 
+                ? 'This will call the smart contract to distribute rewards'
+                : 'Connect your wallet as the room creator to finalize the game'
+              }
             </div>
           </CardContent>
         </Card>

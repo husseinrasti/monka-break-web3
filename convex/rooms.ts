@@ -34,42 +34,53 @@ const resolveRoundResults = async (ctx: any, roomId: Id<"rooms">, currentRound: 
     .withIndex("by_room", (q: any) => q.eq("roomId", roomId))
     .collect();
 
-  // Count votes by choice
-  const voteCounts: Record<string, number> = {};
-  votes.forEach((vote: any) => {
-    voteCounts[vote.choice] = (voteCounts[vote.choice] || 0) + 1;
-  });
-
-  // Find the most voted path (police choice)
-  const policeVotes = votes.filter((v: any) => v.role === 'police');
-  const policeChoiceCounts: Record<string, number> = {};
-  policeVotes.forEach((vote: any) => {
-    policeChoiceCounts[vote.choice] = (policeChoiceCounts[vote.choice] || 0) + 1;
-  });
-
-  const mostVotedPath = Object.entries(policeChoiceCounts).reduce((a, b) => 
-    policeChoiceCounts[a[0]] > policeChoiceCounts[b[0]] ? a : b
-  )?.[0] || Object.keys(voteCounts)[0] || '';
-
   // Get game config for path names
   const config: any = await ctx.runQuery(api.gameConfig.getOrCreateGameConfig, {});
   const stageIndex = currentRound - 1;
   const stagePaths: string[] = config.pathNames?.slice(stageIndex * 3, stageIndex * 3 + 3) || [];
   
+  // Separate votes by role
+  const policeVotes = votes.filter((v: any) => v.role === 'police');
+  const thiefVotes = votes.filter((v: any) => v.role === 'thief');
+  
+  // Determine police choice (most voted path by police)
+  const policeChoiceCounts: Record<string, number> = {};
+  policeVotes.forEach((vote: any) => {
+    policeChoiceCounts[vote.choice] = (policeChoiceCounts[vote.choice] || 0) + 1;
+  });
+  
+  let policeChoice = '';
+  if (Object.keys(policeChoiceCounts).length > 0) {
+    policeChoice = Object.entries(policeChoiceCounts).reduce((a, b) => 
+      policeChoiceCounts[a[0]] > policeChoiceCounts[b[0]] ? a : b
+    )[0];
+  } else {
+    // If no police voted, randomly select a path as their choice
+    policeChoice = stagePaths[Math.floor(Math.random() * stagePaths.length)] || stagePaths[0] || '';
+  }
+  
   // Determine winning path (randomly select from stage paths, excluding police choice)
-  const availablePaths: string[] = stagePaths.filter((path: string) => path !== mostVotedPath);
+  const availablePaths: string[] = stagePaths.filter((path: string) => path !== policeChoice);
   const winningPath: string = availablePaths[Math.floor(Math.random() * availablePaths.length)] || stagePaths[0] || '';
 
-  // Eliminate players who didn't vote or voted for the losing path
+  // Eliminate players based on correct logic
   const eliminatedPlayers: Id<"players">[] = [];
   
   for (const player of players) {
     const playerVote = votes.find((v: any) => v.address === player.address);
     
-    // Eliminate if no vote or voted for losing path
-    if (!playerVote || playerVote.choice !== winningPath) {
-      await ctx.db.patch(player._id, { eliminated: true });
-      eliminatedPlayers.push(player._id);
+    if (player.role === 'police') {
+      // Police should NEVER be eliminated
+      // They continue participating regardless of their vote or lack thereof
+      continue;
+    } else if (player.role === 'thief') {
+      // Thieves are eliminated only if they chose the path that was blocked by police
+      if (playerVote && playerVote.choice === policeChoice) {
+        // Thief chose the path that police blocked - eliminate them
+        await ctx.db.patch(player._id, { eliminated: true });
+        eliminatedPlayers.push(player._id);
+      }
+      // If thief didn't vote or chose a different path, they survive
     }
   }
 
@@ -77,7 +88,7 @@ const resolveRoundResults = async (ctx: any, roomId: Id<"rooms">, currentRound: 
     winningPath,
     eliminatedPlayers: eliminatedPlayers.length,
     totalVotes: votes.length,
-    policeChoice: mostVotedPath
+    policeChoice
   };
 };
 

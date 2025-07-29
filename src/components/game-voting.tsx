@@ -16,6 +16,7 @@ interface GameVotingProps {
   playerAddress: string
   phaseEndTime?: number
   isPhaseActive: boolean
+  isEliminated: boolean
 }
 
 export const GameVoting: React.FC<GameVotingProps> = ({ 
@@ -24,7 +25,8 @@ export const GameVoting: React.FC<GameVotingProps> = ({
   playerRole, 
   playerAddress,
   phaseEndTime,
-  isPhaseActive
+  isPhaseActive,
+  isEliminated
 }) => {
   const [selectedPath, setSelectedPath] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -153,7 +155,8 @@ export const GameVoting: React.FC<GameVotingProps> = ({
           disabled={
             isSubmitting || 
             !selectedPath ||
-            !isPhaseActive
+            !isPhaseActive ||
+            (isEliminated && playerRole === 'thief')
           }
           className="w-full"
           size="lg"
@@ -162,6 +165,8 @@ export const GameVoting: React.FC<GameVotingProps> = ({
             'Submitting Vote...'
           ) : !isPhaseActive ? (
             'Voting Ended'
+          ) : isEliminated && playerRole === 'thief' ? (
+            'Eliminated - Cannot Vote'
           ) : playerVote ? (
             'Update Vote'
           ) : (
@@ -177,8 +182,10 @@ export const GameVoting: React.FC<GameVotingProps> = ({
 
         <div className="text-xs text-muted-foreground text-center">
           {playerRole === 'thief' 
-            ? 'Thieves vote individually. Your vote is private until the commit phase.'
-            : 'Police vote as a team. You can see how your teammates are voting.'
+            ? isEliminated 
+              ? 'You have been eliminated and cannot vote in this round.'
+              : 'Thieves vote individually. Choose your path carefully - if you choose the path the police block, you will be eliminated.'
+            : 'Police vote as a team. You can see how your teammates are voting. Police are never eliminated and can always vote.'
           }
         </div>
       </CardContent>

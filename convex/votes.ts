@@ -30,8 +30,8 @@ export const submitVote = mutation({
       throw new Error("Player not found in this room");
     }
 
-    if (player.eliminated) {
-      throw new Error("Eliminated players cannot vote");
+    if (player.eliminated && player.role === 'thief') {
+      throw new Error("Eliminated thieves cannot vote");
     }
 
     // Check if vote already exists for this round

@@ -149,7 +149,7 @@ export const RoundTimer: React.FC<RoundTimerProps> = ({
                 <div className="font-medium text-green-600">{roundResult.winningPath}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Police Choice:</span>
+                <span className="text-muted-foreground">Police Blocked:</span>
                 <div className="font-medium text-blue-600">{roundResult.policeChoice}</div>
               </div>
               <div>
@@ -157,7 +157,7 @@ export const RoundTimer: React.FC<RoundTimerProps> = ({
                 <div className="font-medium">{roundResult.totalVotes}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Eliminated:</span>
+                <span className="text-muted-foreground">Thieves Eliminated:</span>
                 <div className="font-medium text-red-600">{roundResult.eliminatedPlayers}</div>
               </div>
             </div>
@@ -172,7 +172,7 @@ export const RoundTimer: React.FC<RoundTimerProps> = ({
               <span className="text-sm font-medium">Voting has ended</span>
             </div>
             <div className="text-xs text-amber-700 mt-1">
-              Players who didn't vote or chose the wrong path have been eliminated.
+              Thieves who chose the path blocked by police have been eliminated. Police continue to the next round.
             </div>
           </div>
         )}
