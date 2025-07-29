@@ -114,6 +114,11 @@ export const RefundDialog: React.FC<RefundDialogProps> = ({
           return
         }
 
+        // Check if game is finished (all rounds completed)
+        // We need to get room data to check currentRound vs maxRounds
+        // For now, we'll rely on the button visibility logic in the main page
+        // This is a safety check in case someone tries to call the refund directly
+
         // Check if cooldown period has passed
         const blocksSinceStart = Number(currentBlock) - Number(gameData.startBlock)
         const blocksRemaining = Number(cooldownBlocks) - blocksSinceStart

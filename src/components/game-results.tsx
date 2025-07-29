@@ -33,20 +33,36 @@ export const GameResults: React.FC<GameResultsProps> = ({
     entryFee: number
     finalized: boolean
   } | null>(null)
+  const [isLoadingContractData, setIsLoadingContractData] = useState(false)
+  const [contractDataError, setContractDataError] = useState<string | null>(null)
+  const [finalizationSuccess, setFinalizationSuccess] = useState(false)
 
   const roomPlayers = useQuery(api.rooms.getRoomPlayers, { roomId })
-  const roomData = useQuery(api.rooms.getRoomByCode, 
-    roomPlayers?.[0] ? { roomCode: roomPlayers[0].roomId } : 'skip'
-  )
+  const roomData = useQuery(api.rooms.getRoomById, { roomId })
   const finalizeGame = useMutation(api.rooms.finalizeGame)
+
+  // Reset finalization success state when room data changes
+  useEffect(() => {
+    setFinalizationSuccess(false)
+  }, [roomId])
 
   // Fetch contract data
   useEffect(() => {
     const fetchContractData = async () => {
-      if (!roomData?.gameId) return
+      if (!roomData?.gameId) {
+        setContractData(null)
+        setContractDataError(null)
+        return
+      }
+
+      setIsLoadingContractData(true)
+      setContractDataError(null)
 
       try {
+        console.log('Fetching contract data for game ID:', roomData.gameId)
         const gameInfo = await smartContract.getGame(roomData.gameId)
+        console.log('Contract data received:', gameInfo)
+        
         setContractData({
           vault: gameUtils.formatWeiToMon(gameInfo.vault),
           entryFee: gameUtils.formatWeiToMon(gameInfo.entryFee),
@@ -54,6 +70,10 @@ export const GameResults: React.FC<GameResultsProps> = ({
         })
       } catch (error) {
         console.error('Failed to fetch contract data:', error)
+        setContractDataError(error instanceof Error ? error.message : 'Failed to fetch contract data')
+        setContractData(null)
+      } finally {
+        setIsLoadingContractData(false)
       }
     }
 
@@ -71,7 +91,7 @@ export const GameResults: React.FC<GameResultsProps> = ({
           winningPath ? p.role === 'thief' : p.role === 'police'
         ).filter(p => !p.eliminated) || [],
     totalPrize: contractData?.vault || 0,
-    isFinalized: contractData?.finalized || roomData?.finalized || false,
+    isFinalized: contractData?.finalized || false, // Prioritize contract data over room data
   }
 
   // Check if current user can finalize the game
@@ -79,8 +99,24 @@ export const GameResults: React.FC<GameResultsProps> = ({
     isConnected && 
     address && 
     roomData?.creator === address && 
-    !gameResults.isFinalized &&
-    roomData?.gamePhase === 'finished'
+    roomData?.gamePhase === 'finished' &&
+    roomData?.winners && roomData.winners.length > 0 &&
+    contractData && !contractData.finalized && !finalizationSuccess // Use contract data for finalization status
+
+  // Debug logging for finalize button visibility
+  console.log('Finalize button debug:', {
+    roomId,
+    isCreator,
+    isConnected,
+    address,
+    creatorAddress: roomData?.creator,
+    gamePhase: roomData?.gamePhase,
+    winners: roomData?.winners,
+    contractData,
+    canFinalize,
+    roomDataLoading: roomData === undefined,
+    roomDataExists: roomData !== null
+  })
 
   // Get winner addresses from roomData.winners if available, otherwise from gameResults
   const getWinnerAddresses = (): `0x${string}`[] => {
@@ -119,8 +155,8 @@ export const GameResults: React.FC<GameResultsProps> = ({
       return
     }
 
-    if (gameResults.isFinalized) {
-      alert('Game has already been finalized')
+    if (contractData?.finalized) {
+      alert('Game has already been finalized on the blockchain')
       return
     }
 
@@ -158,11 +194,41 @@ export const GameResults: React.FC<GameResultsProps> = ({
         roomId,
         creatorAddress: address,
         winners: winnerAddresses,
-        vault: gameResults.totalPrize,
+        vault: contractData?.vault || 0,
       })
 
+      // Set success state immediately
+      setFinalizationSuccess(true)
+
+      // Refresh contract data to reflect the new finalized state
+      console.log('Refreshing contract data after successful finalization...')
+      
+      // Add a small delay to ensure blockchain state is updated
+      setTimeout(async () => {
+        if (!roomData.gameId) {
+          console.error('No game ID available for contract data refresh')
+          return
+        }
+        
+        try {
+          const updatedGameInfo = await smartContract.getGame(roomData.gameId)
+          console.log('Updated contract data:', updatedGameInfo)
+          
+          setContractData({
+            vault: gameUtils.formatWeiToMon(updatedGameInfo.vault),
+            entryFee: gameUtils.formatWeiToMon(updatedGameInfo.entryFee),
+            finalized: updatedGameInfo.finalized,
+          })
+        } catch (error) {
+          console.error('Failed to refresh contract data after finalization:', error)
+          // Even if refresh fails, we know the transaction was successful
+          // So we can manually update the finalized status
+          setContractData(prev => prev ? { ...prev, finalized: true } : null)
+        }
+      }, 2000) // 2 second delay to ensure blockchain state is updated
+
       if (winnerAddresses.length > 0) {
-        alert(`Game finalized! Rewards of ${formatMON(gameResults.totalPrize)} have been distributed to ${winnerAddresses.length} winners.`)
+        alert(`Game finalized! Rewards of ${formatMON(contractData?.vault || 0)} have been distributed to ${winnerAddresses.length} winners.`)
       } else {
         alert('Game finalized! No winners to distribute rewards to.')
       }
@@ -191,6 +257,36 @@ export const GameResults: React.FC<GameResultsProps> = ({
     } finally {
       setIsFinalizing(false)
     }
+  }
+
+  // Show loading state if room data is still loading
+  if (roomData === undefined) {
+    return (
+      <div className="space-y-6">
+        <Card className="text-center">
+          <CardContent className="py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <div className="text-lg font-medium">Loading game results...</div>
+            <div className="text-sm text-muted-foreground">Please wait while we fetch the game data</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show error state if room data failed to load
+  if (roomData === null) {
+    return (
+      <div className="space-y-6">
+        <Card className="text-center">
+          <CardContent className="py-8">
+            <div className="text-4xl mb-4">❌</div>
+            <div className="text-lg font-medium">Game Not Found</div>
+            <div className="text-sm text-muted-foreground">The game data could not be loaded</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -268,41 +364,84 @@ export const GameResults: React.FC<GameResultsProps> = ({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-center">
-            <div className="space-y-2">
-              <div className="text-2xl font-bold text-primary">
-                {formatMON(gameResults.totalPrize)}
-              </div>
-              <div className="text-sm text-muted-foreground">Total Vault</div>
+          {isLoadingContractData ? (
+            <div className="text-center py-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+              <div className="text-sm text-muted-foreground">Loading contract data...</div>
             </div>
-            <div className="space-y-2">
-              <div className="text-2xl font-bold text-accent">
-                {gameResults.winners.length > 0 
-                  ? formatMON(gameResults.totalPrize / gameResults.winners.length)
-                  : '0 MON'
-                }
-              </div>
-              <div className="text-sm text-muted-foreground">Per Winner</div>
+          ) : contractDataError ? (
+            <div className="text-center py-4">
+              <div className="text-red-600 mb-2">⚠️ Failed to load contract data</div>
+              <div className="text-sm text-muted-foreground mb-3">{contractDataError}</div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  setContractDataError(null)
+                  // Trigger refetch by updating the dependency
+                  const gameId = roomData?.gameId
+                  if (gameId) {
+                    setContractData(null)
+                    setTimeout(() => {
+                      const fetchContractData = async () => {
+                        try {
+                          const gameInfo = await smartContract.getGame(gameId)
+                          setContractData({
+                            vault: gameUtils.formatWeiToMon(gameInfo.vault),
+                            entryFee: gameUtils.formatWeiToMon(gameInfo.entryFee),
+                            finalized: gameInfo.finalized,
+                          })
+                        } catch (error) {
+                          setContractDataError(error instanceof Error ? error.message : 'Failed to fetch contract data')
+                        }
+                      }
+                      fetchContractData()
+                    }, 100)
+                  }
+                }}
+              >
+                Retry
+              </Button>
             </div>
-          </div>
-          
-          {contractData && (
-            <div className="mt-4 pt-4 border-t text-sm text-muted-foreground">
-              <div className="flex justify-between">
-                <span>Entry Fee:</span>
-                <span>{formatMON(contractData.entryFee)}</span>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div className="space-y-2">
+                  <div className="text-2xl font-bold text-primary">
+                    {formatMON(gameResults.totalPrize)}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Total Vault</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-2xl font-bold text-accent">
+                    {gameResults.winners.length > 0 
+                      ? formatMON(gameResults.totalPrize / gameResults.winners.length)
+                      : '0 MON'
+                    }
+                  </div>
+                  <div className="text-sm text-muted-foreground">Per Winner</div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span>Players:</span>
-                <span>{roomPlayers?.length || 0}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Status:</span>
-                <span className={gameResults.isFinalized ? 'text-green-600' : 'text-yellow-600'}>
-                  {gameResults.isFinalized ? 'Finalized' : 'Not Finalized'}
-                </span>
-              </div>
-            </div>
+              
+              {contractData && (
+                <div className="mt-4 pt-4 border-t text-sm text-muted-foreground">
+                  <div className="flex justify-between">
+                    <span>Entry Fee:</span>
+                    <span>{formatMON(contractData.entryFee)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Players:</span>
+                    <span>{roomPlayers?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Status:</span>
+                    <span className={contractData.finalized ? 'text-green-600' : 'text-yellow-600'}>
+                      {contractData.finalized ? 'Finalized' : 'Not Finalized'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -387,16 +526,16 @@ export const GameResults: React.FC<GameResultsProps> = ({
             <CardTitle>Finalize Game</CardTitle>
             <CardDescription>
               {canFinalize ? (
-                gameResults.winners.length > 0 
-                  ? `Trigger the smart contract to distribute ${formatMON(gameResults.totalPrize)} to ${gameResults.winners.length} winners`
-                  : `Trigger the smart contract to finalize the game (no winners to distribute rewards to)`
+                `Trigger the smart contract to distribute ${formatMON(gameResults.totalPrize)} to ${roomData?.winners?.length || 0} winners`
               ) : (
                 <div className="space-y-1">
                   {!isConnected && <div>• Please connect your wallet</div>}
                   {isConnected && !address && <div>• Wallet address not detected</div>}
                   {address && roomData?.creator !== address && <div>• Only the room creator can finalize the game</div>}
-                  {gameResults.isFinalized && <div>• Game has already been finalized</div>}
+                  {contractData?.finalized && <div>• Game has already been finalized on the blockchain</div>}
                   {roomData?.gamePhase !== 'finished' && <div>• Game is not finished yet</div>}
+                  {roomData?.gamePhase === 'finished' && (!roomData?.winners || roomData.winners.length === 0) && <div>• No winners to distribute rewards to</div>}
+                  {!contractData && !isLoadingContractData && <div>• Contract data not available</div>}
                 </div>
               )}
             </CardDescription>
@@ -410,17 +549,21 @@ export const GameResults: React.FC<GameResultsProps> = ({
             >
               {isFinalizing ? (
                 'Finalizing Game...'
+              ) : finalizationSuccess ? (
+                'Finalization Successful!'
               ) : !canFinalize ? (
                 'Cannot Finalize'
-              ) : gameResults.winners.length > 0 ? (
-                `Finalize & Distribute ${formatMON(gameResults.totalPrize)}`
               ) : (
-                'Finalize Game'
+                `Finalize & Distribute ${formatMON(gameResults.totalPrize)}`
               )}
             </Button>
             <div className="text-xs text-muted-foreground text-center mt-2">
-              {canFinalize 
-                ? 'This will call the smart contract to distribute rewards'
+              {finalizationSuccess 
+                ? 'Game has been successfully finalized and rewards distributed!'
+                : canFinalize 
+                ? 'This will call the smart contract to distribute rewards to winners'
+                : isLoadingContractData 
+                ? 'Loading contract data...'
                 : 'Connect your wallet as the room creator to finalize the game'
               }
             </div>
@@ -428,12 +571,40 @@ export const GameResults: React.FC<GameResultsProps> = ({
         </Card>
       )}
 
-      {gameResults.isFinalized && (
+      {(contractData?.finalized || finalizationSuccess) && (
         <Card className="border-green-200 bg-green-50">
           <CardContent className="text-center py-6">
-            <div className="text-green-600 font-medium">
+            <div className="text-green-600 font-medium mb-4">
               ✅ Game has been finalized and rewards distributed!
             </div>
+            
+            {/* Token Distribution Summary */}
+            {roomData?.winners && roomData.winners.length > 0 ? (
+              <div className="space-y-3">
+                <div className="text-sm text-green-700">
+                  <strong>Token Distribution:</strong>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-green-600">Total Distributed:</span>
+                    <div className="font-medium">{formatMON(contractData?.vault || 0)}</div>
+                  </div>
+                  <div>
+                    <span className="text-green-600">Per Winner:</span>
+                    <div className="font-medium">
+                      {formatMON((contractData?.vault || 0) / roomData.winners.length)}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs text-green-600">
+                  {roomData.winners.length} winner{roomData.winners.length !== 1 ? 's' : ''} received {formatMON((contractData?.vault || 0) / roomData.winners.length)} each
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-green-700">
+                <strong>Refund:</strong> The vault was returned to the game creator
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

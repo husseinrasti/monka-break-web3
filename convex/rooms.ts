@@ -303,6 +303,38 @@ export const getRoomByCode = query({
   },
 });
 
+export const getRoomById = query({
+  args: { roomId: v.id("rooms") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("rooms"),
+      _creationTime: v.number(),
+      creator: v.string(),
+      gameId: v.optional(v.number()),
+      entryFee: v.number(),
+      started: v.boolean(),
+      finalized: v.boolean(),
+      requiredMinPlayers: v.number(),
+      currentRound: v.number(),
+      maxRounds: v.number(),
+      roomCode: v.string(),
+      gamePhase: v.union(
+        v.literal("waiting"),
+        v.literal("voting"),
+        v.literal("finished")
+      ),
+      phaseEndTime: v.optional(v.number()),
+      winningPath: v.optional(v.string()),
+      vault: v.optional(v.number()),
+      winners: v.optional(v.array(v.string())),
+    })
+  ),
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.roomId);
+  },
+});
+
 export const getRoomPlayers = query({
   args: { roomId: v.id("rooms") },
   returns: v.array(v.object({

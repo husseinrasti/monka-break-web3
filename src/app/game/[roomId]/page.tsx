@@ -282,7 +282,13 @@ export default function GameRoomPage() {
                 </Button>
               )}
 
-              {roomData.started && !roomData.finalized && roomData.creator === address && roomData.gameId && (
+              {/* Refund Button - Only show to creator when game is started but not finished, not finalized, and no winners */}
+              {roomData.started && 
+               roomData.gamePhase !== 'finished' && 
+               !roomData.finalized && 
+               roomData.creator === address && 
+               roomData.gameId &&
+               roomData.currentRound < roomData.maxRounds && (
                 <Button 
                   onClick={() => setIsRefundDialogOpen(true)}
                   variant="outline"
